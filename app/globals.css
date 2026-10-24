@@ -1,0 +1,26 @@
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Light theme */
+:root {
+  color-scheme: light;
+  --app-bg: #f1f5f9;
+  --panel-bg: #ffffff;
+  --text-primary: #0f172a;
+  --text-secondary: #64748b;
+  --border-color: #e2e8f0;
+}
+
+/* Dark theme */
+.dark {
+  color-scheme: dark;
+  --app-bg: #0f172a;
+  --panel-bg: #1e293b;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --border-color: #334155;
+}
+
+body {
+  background-color: var(--app-bg);
+  color: var(--text-primary);
+}
