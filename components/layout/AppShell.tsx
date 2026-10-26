@@ -15,13 +15,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen w-full overflow-hidden bg-white dark:bg-slate-900">
       {/* Left Pane (Sidebar) */}
-      <div
-        className={`h-full w-full shrink-0 border-r border-slate-200 dark:border-slate-800 md:flex md:w-[380px] lg:w-[420px] ${
-          activeConversation ? "hidden md:flex" : "flex"
-        }`}
-      >
-        <Sidebar />
-      </div>
+    <div
+  className={`h-full w-full shrink-0 border-r border-slate-200 dark:border-slate-800 md:flex md:w-[260px] lg:w-[320px] ${
+    activeConversation ? "hidden md:flex" : "flex"
+  }`}
+>
+  <Sidebar />
+</div>
 
       {/* Right Pane (Chat Area / Pages) */}
       <div
