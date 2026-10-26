@@ -1,7 +1,7 @@
 "use client";
 
 import { LogOut, RefreshCw, Users } from "lucide-react";
-import ChatItem from "@/components/chat/ChatItem";
+import ChatItem from "@/components/Chat/ChatItem";
 import {
   displayName,
   type Conversation,

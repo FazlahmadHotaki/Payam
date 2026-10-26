@@ -159,8 +159,9 @@ export default function MessageInput({ value, onChange, onSubmit, sending }: Pro
             )}
           </div>
           <div className="flex flex-1 flex-col justify-center">
-            <p className="text-sm font-medium">Ready to send {mediaType.toLowerCase()}</p>
-            <p className="text-xs text-slate-500">{(selectedFile!.size / 1024 / 1024).toFixed(2)} MB</p>
+<p className="text-sm font-medium">
+  Ready to send {mediaType?.toLowerCase() ?? "media"}
+</p>            <p className="text-xs text-slate-500">{(selectedFile!.size / 1024 / 1024).toFixed(2)} MB</p>
           </div>
           <button onClick={cancelMedia} className="p-2 text-slate-400 hover:text-red-500">
             <Trash2 size={18} />
