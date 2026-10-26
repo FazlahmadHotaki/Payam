@@ -14,7 +14,8 @@
     "lucide-react": "^0.468.0",
     "next": "^15.1.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "twallpaper": "^2.1.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
@@ -24,5 +25,8 @@
     "eslint": "^9.17.0",
     "eslint-config-next": "^15.1.0",
     "typescript": "^5.7.2"
+  },
+  "allowScripts": {
+    "unrs-resolver@1.12.2": true
   }
 }
