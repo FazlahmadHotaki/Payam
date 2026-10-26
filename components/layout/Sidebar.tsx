@@ -3,25 +3,37 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Menu, Search, X, Users, Settings, LogOut, UserCircle, LoaderCircle } from "lucide-react";
+import {
+  Menu,
+  Search,
+  X,
+  Users,
+  Settings,
+  LogOut,
+  UserCircle,
+  LoaderCircle,
+} from "lucide-react";
 import { displayName, relativeTime } from "@/lib/chat";
 import { useChat } from "@/lib/chat-context";
 import { supabase } from "@/lib/supabase/client";
 import type { Profile } from "@/lib/chat";
+
 export default function Sidebar() {
   const {
     conversations,
     activeConversation,
     myProfile,
     loading,
-    setActiveConversation,
     openConversation,
     signOut,
+    unreadCounts,
+    markAsRead,
+    setActiveConversation,
   } = useChat();
 
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-  
+
   // Global search states
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -36,17 +48,19 @@ export default function Sidebar() {
     const delayDebounce = setTimeout(async () => {
       setIsSearching(true);
       const searchTerm = `%${query.trim()}%`;
-      
+
       const { data } = await supabase
         .from("profiles")
         .select("id, display_name, email, username")
-        .neq("id", myProfile?.id) // Don't show yourself
-        .or(`display_name.ilike.${searchTerm},username.ilike.${searchTerm},email.ilike.${searchTerm}`)
+        .neq("id", myProfile?.id)
+        .or(
+          `display_name.ilike.${searchTerm},username.ilike.${searchTerm},email.ilike.${searchTerm}`
+        )
         .limit(20);
 
       if (data) setSearchResults(data as Profile[]);
       setIsSearching(false);
-    }, 300); // 300ms debounce
+    }, 300);
 
     return () => clearTimeout(delayDebounce);
   }, [query, myProfile?.id]);
@@ -54,14 +68,29 @@ export default function Sidebar() {
   // Helper to handle clicking a user from search
   const handleStartChat = async (profile: Profile) => {
     await openConversation(profile);
-    setQuery(""); // clear search
+    setQuery("");
   };
+
+  // Helper to handle clicking a conversation in the list
+  const handleSelectConversation = async (c: (typeof conversations)[number]) => {
+    // اگر گفتگوی فعال است، فقط unread را پاک کن (markAsRead)
+    // اگر نیست، مستقیم ست کن و markAsRead بزن
+    setActiveConversation(c);
+    await markAsRead(c.id);
+  };
+
+  // مجموع unreadها برای نمایش در تب مرورگر (اختیاری)
+  const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.title =
+      totalUnread > 0 ? `(${totalUnread}) Payam` : "Payam";
+  }, [totalUnread]);
 
   return (
     <aside className="relative flex h-full w-full flex-col bg-white dark:bg-slate-900">
-      {/* Top Bar: Hamburger + Search + Profile */}
+      {/* Top Bar */}
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 px-3 dark:border-slate-800">
-        
         {/* Hamburger Menu */}
         <div className="relative">
           <button
@@ -74,11 +103,18 @@ export default function Sidebar() {
 
           {menuOpen && (
             <>
-              <div className="fixed inset-0 z-40 cursor-default" onClick={() => setMenuOpen(false)} />
+              <div
+                className="fixed inset-0 z-40 cursor-default"
+                onClick={() => setMenuOpen(false)}
+              />
               <div className="absolute left-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
                 <div className="flex items-center gap-3 border-b border-slate-100 p-3 dark:border-slate-700">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
-                    {myProfile ? displayName(myProfile).charAt(0).toUpperCase() : <UserCircle size={20} />}
+                    {myProfile ? (
+                      displayName(myProfile).charAt(0).toUpperCase()
+                    ) : (
+                      <UserCircle size={20} />
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
@@ -90,15 +126,30 @@ export default function Sidebar() {
                   </div>
                 </div>
                 <div className="py-1">
-                  <Link href="/contacts" onClick={() => setMenuOpen(false)} className="flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">
+                  <Link
+                    href="/contacts"
+                    onClick={() => setMenuOpen(false)}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
+                  >
                     <Users size={18} className="text-slate-400" /> Contacts
                   </Link>
-                  <Link href="/settings" onClick={() => setMenuOpen(false)} className="flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">
+                  <Link
+                    href="/settings"
+                    onClick={() => setMenuOpen(false)}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
+                  >
                     <Settings size={18} className="text-slate-400" /> Settings
                   </Link>
                 </div>
                 <div className="border-t border-slate-100 py-1 dark:border-slate-700">
-                  <button type="button" onClick={() => { setMenuOpen(false); void signOut(); }} className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void signOut();
+                    }}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
+                  >
                     <LogOut size={18} /> Sign Out
                   </button>
                 </div>
@@ -109,7 +160,10 @@ export default function Sidebar() {
 
         {/* Search Bar */}
         <div className="relative flex-1">
-          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search
+            size={16}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+          />
           <input
             type="text"
             value={query}
@@ -118,7 +172,10 @@ export default function Sidebar() {
             className="h-9 w-full rounded-full border-0 bg-slate-100 pl-9 pr-8 text-sm outline-none transition focus:bg-white focus:ring-2 focus:ring-blue-500/20 dark:bg-slate-800 dark:focus:bg-slate-700"
           />
           {query && (
-            <button onClick={() => setQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700">
+            <button
+              onClick={() => setQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+            >
               <X size={14} />
             </button>
           )}
@@ -132,7 +189,6 @@ export default function Sidebar() {
 
       {/* Main List */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* If searching, show search results */}
         {query.trim() ? (
           <>
             {isSearching ? (
@@ -140,9 +196,10 @@ export default function Sidebar() {
                 <LoaderCircle className="animate-spin" size={20} />
               </div>
             ) : searchResults.length === 0 ? (
-<p className="p-4 text-center text-sm text-slate-500">
-  No users found for &quot;{query}&quot;.
-</p>            ) : (
+              <p className="p-4 text-center text-sm text-slate-500">
+                No users found for &quot;{query}&quot;.
+              </p>
+            ) : (
               searchResults.map((profile) => (
                 <button
                   key={profile.id}
@@ -165,38 +222,87 @@ export default function Sidebar() {
             )}
           </>
         ) : (
-          /* If not searching, show Recent Chats */
           <>
             {loading ? (
-              <p className="p-4 text-center text-sm text-slate-500">Loading...</p>
+              <p className="p-4 text-center text-sm text-slate-500">
+                Loading...
+              </p>
             ) : conversations.length === 0 ? (
-              <p className="p-4 text-center text-sm text-slate-500">No chats yet.</p>
+              <p className="p-4 text-center text-sm text-slate-500">
+                No chats yet.
+              </p>
             ) : (
               conversations.map((c) => {
                 const active = activeConversation?.id === c.id;
+                const unread = unreadCounts[c.id] ?? 0;
+
                 return (
                   <button
                     key={c.id}
-                    onClick={() => setActiveConversation(c)}
+                    onClick={() => void handleSelectConversation(c)}
                     className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
-                      active ? "bg-[#3390ec] text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"
+                      active
+                        ? "bg-[#3390ec] text-white"
+                        : unread > 0
+                        ? "bg-blue-50/60 dark:bg-blue-950/20 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                        : "hover:bg-slate-100 dark:hover:bg-slate-800"
                     }`}
                   >
-                    <div className={`flex size-12 shrink-0 items-center justify-center rounded-full text-lg font-semibold ${active ? "bg-white/20 text-white" : "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"}`}>
+                    <div
+                      className={`flex size-12 shrink-0 items-center justify-center rounded-full text-lg font-semibold ${
+                        active
+                          ? "bg-white/20 text-white"
+                          : "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                      }`}
+                    >
                       {displayName(c.otherUser).charAt(0).toUpperCase()}
                     </div>
+
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-2">
-                        <p className={`truncate text-sm font-semibold ${active ? "text-white" : "text-slate-900 dark:text-slate-100"}`}>
+                        <p
+                          className={`truncate text-sm ${
+                            active
+                              ? "text-white"
+                              : unread > 0
+                              ? "font-bold text-slate-900 dark:text-white"
+                              : "font-semibold text-slate-900 dark:text-slate-100"
+                          }`}
+                        >
                           {displayName(c.otherUser)}
                         </p>
-                        <span className={`shrink-0 text-xs ${active ? "text-white/80" : "text-slate-500"}`}>
+                        <span
+                          className={`shrink-0 text-xs ${
+                            active ? "text-white/80" : "text-slate-500"
+                          }`}
+                        >
                           {relativeTime(c.updatedAt)}
                         </span>
                       </div>
-                      <p className={`truncate text-sm ${active ? "text-white/80" : "text-slate-500"}`}>
-                        {c.otherUser.username ? `@${c.otherUser.username}` : c.otherUser.email}
-                      </p>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <p
+                          className={`truncate text-sm ${
+                            active
+                              ? "text-white/80"
+                              : unread > 0
+                              ? "text-slate-700 dark:text-slate-200"
+                              : "text-slate-500"
+                          }`}
+                        >
+                          {unread > 0
+                            ? `${unread} new message${unread > 1 ? "s" : ""} from ${displayName(c.otherUser)}`
+                            : c.otherUser.username
+                            ? `@${c.otherUser.username}`
+                            : c.otherUser.email}
+                        </p>
+
+                        {unread > 0 && !active && (
+                          <span className="ml-2 shrink-0 rounded-full bg-blue-600 px-2 py-0.5 text-xs font-bold text-white">
+                            {unread > 99 ? "99+" : unread}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </button>
                 );
