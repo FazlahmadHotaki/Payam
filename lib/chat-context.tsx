@@ -26,7 +26,6 @@ function getErrorMessage(error: unknown): string {
   return "An unexpected error occurred.";
 }
 
-/** مرتب‌سازی گفتگوها بر اساس جدیدترین پیام (نزولی) */
 function sortByRecency(list: Conversation[]): Conversation[] {
   return [...list].sort((a, b) => {
     const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
@@ -58,6 +57,8 @@ type ChatContextType = {
   clearActive: () => void;
   markAsRead: (conversationId: string) => Promise<void>;
   updateUsername: (newUsername: string) => Promise<UpdateUsernameResult>;
+  deleteMessageForMe: (messageId: string) => Promise<boolean>;
+  deleteMessageForEveryone: (messageId: string) => Promise<boolean>;
   signOut: () => Promise<void>;
 };
 
@@ -108,7 +109,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ============================================================
-  // شمارش unread از DB
+  // unread counts
   // ============================================================
   const computeUnreadCounts = useCallback(async (uid: string) => {
     const { data: memberships, error: mErr } = await supabase
@@ -128,7 +129,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
 
     const counts: Record<string, number> = {};
-
     for (const row of rows) {
       const convId = row.conversation_id as string;
       const lastRead = row.last_read_at as string;
@@ -138,22 +138,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .select("id", { count: "exact", head: true })
         .eq("conversation_id", convId)
         .neq("sender_id", uid)
+        .is("deleted_at", null)
         .gt("created_at", lastRead);
 
       if (cErr) {
         console.error("count unread:", cErr.message);
         continue;
       }
-
       counts[convId] = count ?? 0;
     }
 
     setUnreadCounts(counts);
   }, []);
 
-  // ============================================================
-  // بارگذاری مخاطبین
-  // ============================================================
   const loadContacts = useCallback(async (uid: string) => {
     const { data, error: contactsError } = await supabase
       .from("profiles")
@@ -164,13 +161,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (contactsError) {
       throw new Error(`Loading contacts failed: ${contactsError.message}`);
     }
-
     setContacts((data ?? []) as Profile[]);
   }, []);
 
-  // ============================================================
-  // بارگذاری گفتگوها + آخرین پیام + مرتب‌سازی
-  // ============================================================
   const loadConversations = useCallback(
     async (uid: string) => {
       const { data: memberships, error: membershipError } = await supabase
@@ -241,22 +234,31 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         );
       }
 
-      // آخرین پیام هر گفتگو
-      const { data: latestMessages, error: latestError } = await supabase
+      // آخرین پیام‌های غیرحذف‌شده
+      const { data: latestMessages } = await supabase
         .from("messages")
-        .select("conversation_id, content, created_at, sender_id")
+        .select("id, conversation_id, content, created_at, sender_id")
         .in("conversation_id", conversationIds)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false });
 
-      if (latestError) {
-        console.error("Loading latest messages failed:", latestError.message);
-      }
+      // حذف‌های شخصی من
+      const { data: myDeletions } = await supabase
+        .from("message_deletions")
+        .select("message_id")
+        .eq("user_id", uid);
+
+      const deletedIds = new Set(
+        (myDeletions ?? []).map((d) => d.message_id as string)
+      );
 
       const latestMap = new Map<
         string,
         { content: string; created_at: string; sender_id: string }
       >();
       for (const m of latestMessages ?? []) {
+        const id = (m as { id: string }).id;
+        if (deletedIds.has(id)) continue;
         const convId = m.conversation_id as string;
         if (!latestMap.has(convId)) {
           latestMap.set(convId, {
@@ -268,10 +270,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
 
       const profileMap = new Map(
-        ((profileRows ?? []) as Profile[]).map((profile) => [
-          profile.id,
-          profile,
-        ])
+        ((profileRows ?? []) as Profile[]).map((p) => [p.id, p])
       );
 
       const otherUserMap = new Map<string, string>();
@@ -284,30 +283,24 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const loadedConversations: Conversation[] = (conversationRows ?? []).map(
-        (conversation) => {
-          const conversationId = conversation.id as string;
-          const otherUserId = otherUserMap.get(conversationId);
-          const latest = latestMap.get(conversationId);
+      const loaded: Conversation[] = (conversationRows ?? []).map((c) => {
+        const cid = c.id as string;
+        const otherUserId = otherUserMap.get(cid);
+        const latest = latestMap.get(cid);
+        return {
+          ...c,
+          otherUser: otherUserId ? profileMap.get(otherUserId) ?? null : null,
+          lastMessageAt: latest?.created_at ?? null,
+          lastMessage: latest?.content ?? null,
+          lastMessageSenderId: latest?.sender_id ?? null,
+        } as unknown as Conversation;
+      });
 
-          return {
-            ...conversation,
-            otherUser: otherUserId
-              ? profileMap.get(otherUserId) ?? null
-              : null,
-            lastMessageAt: latest?.created_at ?? null,
-            lastMessage: latest?.content ?? null,
-            lastMessageSenderId: latest?.sender_id ?? null,
-          } as unknown as Conversation;
-        }
-      );
-
-      const sorted = sortByRecency(loadedConversations);
+      const sorted = sortByRecency(loaded);
       setConversations(sorted);
-
-      setActiveConversation((current) => {
-        if (!current) return null;
-        return sorted.find((c) => c.id === current.id) ?? null;
+      setActiveConversation((cur) => {
+        if (!cur) return null;
+        return sorted.find((c) => c.id === cur.id) ?? null;
       });
 
       void computeUnreadCounts(uid);
@@ -316,7 +309,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   // ============================================================
-  // Initialize (auth + profile + contacts + conversations)
+  // Initialize
   // ============================================================
   useEffect(() => {
     let cancelled = false;
@@ -368,7 +361,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         await loadContacts(uid);
         if (cancelled) return;
-
         await loadConversations(uid);
       } catch (err) {
         if (cancelled) return;
@@ -389,7 +381,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
 
     void initialize();
-
     return () => {
       cancelled = true;
     };
@@ -409,7 +400,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, [isLogin, router, clearUserData]);
 
-  // بارگذاری پیام‌های گفتگوی فعال
+  // پیام‌های گفتگوی فعال
   useEffect(() => {
     let cancelled = false;
 
@@ -423,17 +414,36 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setLoadingMessages(true);
 
       try {
-        const { data, error: messagesError } = await supabase
+        const { data: rows, error: messagesError } = await supabase
           .from("messages")
           .select("*")
           .eq("conversation_id", activeConversation.id)
+          .is("deleted_at", null)
           .order("created_at", { ascending: true });
 
         if (messagesError) {
           throw new Error(`Loading messages failed: ${messagesError.message}`);
         }
 
-        if (!cancelled) setMessages((data ?? []) as Message[]);
+        const { data: myDeletions, error: delErr } = await supabase
+          .from("message_deletions")
+          .select("message_id")
+          .eq("user_id", userId);
+
+        if (delErr) {
+          console.warn("Loading deletions failed:", delErr.message);
+        }
+
+        const deletedIds = new Set(
+          (myDeletions ?? []).map((d) => d.message_id as string)
+        );
+
+        if (!cancelled) {
+          const filtered = ((rows ?? []) as Message[]).filter(
+            (m) => !deletedIds.has(m.id)
+          );
+          setMessages(filtered);
+        }
       } catch (err) {
         if (!cancelled) setError(getErrorMessage(err));
       } finally {
@@ -447,9 +457,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, activeConversation]);
 
-  // ============================================================
   // markAsRead
-  // ============================================================
   const markAsRead = useCallback(
     async (conversationId: string) => {
       if (!userId) return;
@@ -466,16 +474,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .eq("conversation_id", conversationId)
         .eq("user_id", userId);
 
-      if (updateError) {
-        console.error("markAsRead:", updateError.message);
-      }
+      if (updateError) console.error("markAsRead:", updateError.message);
     },
     [userId]
   );
 
-  // ============================================================
   // openConversation
-  // ============================================================
   const openConversation = useCallback(
     async (contact: Profile): Promise<void> => {
       if (!userId) {
@@ -566,9 +570,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, router, loadConversations, markAsRead]
   );
 
-  // ============================================================
   // sendMessage
-  // ============================================================
   const sendMessage = useCallback(
     async (content: string): Promise<boolean> => {
       const text = content.trim();
@@ -627,7 +629,63 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   // ============================================================
-  // Realtime: پیام‌های گفتگوی فعال
+  // Delete: only for me
+  // ============================================================
+  const deleteMessageForMe = useCallback(
+    async (messageId: string): Promise<boolean> => {
+      if (!userId) return false;
+      try {
+        const { error: insErr } = await supabase
+          .from("message_deletions")
+          .insert({ message_id: messageId, user_id: userId });
+
+        if (insErr) throw insErr;
+
+        setMessages((prev) => prev.filter((m) => m.id !== messageId));
+
+        // reload conversations to update sidebar preview if needed
+        if (userId) void loadConversations(userId);
+        return true;
+      } catch (err) {
+        setError(getErrorMessage(err));
+        return false;
+      }
+    },
+    [userId, loadConversations]
+  );
+
+  // ============================================================
+  // Delete: for everyone (soft delete)
+  // ============================================================
+  const deleteMessageForEveryone = useCallback(
+    async (messageId: string): Promise<boolean> => {
+      if (!userId) return false;
+      try {
+        const { error: updErr } = await supabase
+          .from("messages")
+          .update({
+            deleted_at: new Date().toISOString(),
+            deleted_by: userId,
+          })
+          .eq("id", messageId)
+          .eq("sender_id", userId);
+
+        if (updErr) throw updErr;
+
+        setMessages((prev) => prev.filter((m) => m.id !== messageId));
+
+        if (userId) void loadConversations(userId);
+        return true;
+      } catch (err) {
+        setError(getErrorMessage(err));
+        return false;
+      }
+    },
+    [userId, loadConversations]
+  );
+
+  // ============================================================
+  // Realtime: messages in the active conversation
   // ============================================================
   useEffect(() => {
     if (!userId || !activeConversation) return;
@@ -644,25 +702,37 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           filter: `conversation_id=eq.${conversationId}`,
         },
         (payload) => {
+          // UPDATE
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as Message & {
+              deleted_at?: string | null;
+            };
+            if (updated.deleted_at) {
+              setMessages((cur) => cur.filter((m) => m.id !== updated.id));
+              void loadConversations(userId);
+              return;
+            }
+            setMessages((cur) =>
+              cur.map((m) => (m.id === updated.id ? (updated as Message) : m))
+            );
+            return;
+          }
+
+          // DELETE
           if (payload.eventType === "DELETE") {
             const deletedId = (payload.old as { id?: string }).id;
             if (deletedId) {
-              setMessages((current) =>
-                current.filter((m) => m.id !== deletedId)
-              );
+              setMessages((cur) => cur.filter((m) => m.id !== deletedId));
+              void loadConversations(userId);
             }
             return;
           }
 
+          // INSERT
           const newMessage = payload.new as Message;
-
-          setMessages((current) => {
-            if (current.some((m) => m.id === newMessage.id)) {
-              return current.map((m) =>
-                m.id === newMessage.id ? newMessage : m
-              );
-            }
-            return [...current, newMessage].sort(
+          setMessages((cur) => {
+            if (cur.some((m) => m.id === newMessage.id)) return cur;
+            return [...cur, newMessage].sort(
               (a, b) =>
                 new Date(a.created_at).getTime() -
                 new Date(b.created_at).getTime()
@@ -694,11 +764,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [userId, activeConversation, markAsRead]);
+  }, [userId, activeConversation, markAsRead, loadConversations]);
 
-  // ============================================================
-  // Realtime: عضویت جدید (گفتگوی جدید)
-  // ============================================================
+  // Realtime: membership
   useEffect(() => {
     if (!userId) return;
 
@@ -712,9 +780,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           table: "conversation_members",
           filter: `user_id=eq.${userId}`,
         },
-        () => {
-          void loadConversations(userId);
-        }
+        () => void loadConversations(userId)
       )
       .subscribe();
 
@@ -723,9 +789,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, loadConversations]);
 
-  // ============================================================
-  // Realtime: همه پیام‌ها (badge + sort)
-  // ============================================================
+  // Realtime: all messages (sidebar)
   useEffect(() => {
     if (!userId) return;
 
@@ -733,10 +797,26 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       .channel(`all-messages-${userId}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
+        { event: "*", schema: "public", table: "messages" },
         (payload) => {
-          const newMessage = payload.new as Message;
+          // UPDATE (soft-delete)
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as Message & {
+              deleted_at?: string | null;
+            };
+            if (updated.deleted_at) {
+              void loadConversations(userId);
+            }
+            return;
+          }
 
+          if (payload.eventType === "DELETE") {
+            void loadConversations(userId);
+            return;
+          }
+
+          // INSERT
+          const newMessage = payload.new as Message;
           if (newMessage.sender_id === userId) return;
 
           const isActive =
@@ -781,9 +861,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, loadConversations]);
 
-  // ============================================================
   // updateUsername
-  // ============================================================
   const updateUsername = useCallback(
     async (raw: string): Promise<UpdateUsernameResult> => {
       if (!userId) return { ok: false, error: "Not logged in" };
@@ -798,7 +876,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         };
       }
 
-      // چک یکتایی برای UX بهتر
       const { data: existing, error: checkErr } = await supabase
         .from("profiles")
         .select("id")
@@ -807,9 +884,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .maybeSingle();
 
       if (checkErr) return { ok: false, error: checkErr.message };
-      if (existing) {
+      if (existing)
         return { ok: false, error: "That username is already taken." };
-      }
 
       const { error: updateErr } = await supabase
         .from("profiles")
@@ -833,15 +909,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: updateErr.message };
       }
 
-      // آپدیت state
       setMyProfile((prev) => (prev ? { ...prev, username } : prev));
-
-      // اگر این کاربر در لیست مخاطبین هم بود، همان‌جا هم آپدیت کن
       setContacts((prev) =>
         prev.map((c) => (c.id === userId ? { ...c, username } : c))
       );
-
-      // در گفتگوها هم otherUser خودت (اگر بود) آپدیت شود
       setConversations((prev) =>
         prev.map((c) =>
           c.otherUser?.id === userId
@@ -888,6 +959,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     clearActive,
     markAsRead,
     updateUsername,
+    deleteMessageForMe,
+    deleteMessageForEveryone,
     signOut,
   };
 

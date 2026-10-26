@@ -13,18 +13,22 @@ export type Message = {
   sender_id: string;
   content: string;
   created_at: string;
+
+  // ← جدید: soft delete (برای «Delete for everyone»)
+  deleted_at?: string | null;
+  deleted_by?: string | null;
 };
 
 export type Conversation = {
   id: string;
   otherUser: Profile;
 
-  // ← جدید: برای مرتب‌سازی و پیش‌نمایش پیام آخر
+  // برای مرتب‌سازی و پیش‌نمایش پیام آخر
   lastMessageAt?: string | null;
   lastMessage?: string | null;
   lastMessageSenderId?: string | null;
 
-  // ← legacy (قبلاً استفاده می‌شد؛ حالا معمولاً null است)
+  // legacy (قبلاً استفاده می‌شد؛ حالا معمولاً null است)
   updatedAt?: string;
 };
 
