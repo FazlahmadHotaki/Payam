@@ -1,4 +1,4 @@
-
+// app/settings/page.tsx
 "use client";
 
 import { useState, type ReactNode } from "react";
@@ -22,8 +22,10 @@ import {
   MessageSquare,
   Monitor,
   Smartphone,
+  AtSign,
 } from "lucide-react";
 import { useTheme } from "@/components/layout/ThemeProvider";
+import UsernameEditor from "@/components/settings/UsernameEditor";
 
 type SettingRowProps = {
   icon: ReactNode;
@@ -364,6 +366,24 @@ export default function SettingsPage() {
                 <p className="text-sm text-slate-500 dark:text-slate-400">
                   Manage your profile and account
                 </p>
+              </div>
+            </div>
+
+            {/* ✅ جدید: ویرایش username */}
+            <div className="border-b border-slate-100 py-4 dark:border-slate-700">
+              <div className="mb-3 flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                  <AtSign size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold">Username</h3>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    Change how others find and mention you
+                  </p>
+                </div>
+              </div>
+              <div className="pl-13">
+                <UsernameEditor />
               </div>
             </div>
 

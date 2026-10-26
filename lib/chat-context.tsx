@@ -35,6 +35,8 @@ function sortByRecency(list: Conversation[]): Conversation[] {
   });
 }
 
+type UpdateUsernameResult = { ok: boolean; error?: string };
+
 type ChatContextType = {
   userId: string;
   myProfile: Profile | null;
@@ -55,6 +57,7 @@ type ChatContextType = {
   sendMessage: (content: string) => Promise<boolean>;
   clearActive: () => void;
   markAsRead: (conversationId: string) => Promise<void>;
+  updateUsername: (newUsername: string) => Promise<UpdateUsernameResult>;
   signOut: () => Promise<void>;
 };
 
@@ -105,7 +108,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ============================================================
-  // بارگذاری unread از DB
+  // شمارش unread از DB
   // ============================================================
   const computeUnreadCounts = useCallback(async (uid: string) => {
     const { data: memberships, error: mErr } = await supabase
@@ -148,6 +151,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setUnreadCounts(counts);
   }, []);
 
+  // ============================================================
+  // بارگذاری مخاطبین
+  // ============================================================
   const loadContacts = useCallback(async (uid: string) => {
     const { data, error: contactsError } = await supabase
       .from("profiles")
@@ -162,6 +168,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setContacts((data ?? []) as Profile[]);
   }, []);
 
+  // ============================================================
+  // بارگذاری گفتگوها + آخرین پیام + مرتب‌سازی
+  // ============================================================
   const loadConversations = useCallback(
     async (uid: string) => {
       const { data: memberships, error: membershipError } = await supabase
@@ -307,7 +316,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   // ============================================================
-  // Initialize
+  // Initialize (auth + profile + contacts + conversations)
   // ============================================================
   useEffect(() => {
     let cancelled = false;
@@ -400,7 +409,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, [isLogin, router, clearUserData]);
 
-  // پیام‌های گفتگوی فعال
+  // بارگذاری پیام‌های گفتگوی فعال
   useEffect(() => {
     let cancelled = false;
 
@@ -438,7 +447,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, activeConversation]);
 
+  // ============================================================
   // markAsRead
+  // ============================================================
   const markAsRead = useCallback(
     async (conversationId: string) => {
       if (!userId) return;
@@ -462,7 +473,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId]
   );
 
+  // ============================================================
   // openConversation
+  // ============================================================
   const openConversation = useCallback(
     async (contact: Profile): Promise<void> => {
       if (!userId) {
@@ -553,7 +566,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, router, loadConversations, markAsRead]
   );
 
+  // ============================================================
   // sendMessage
+  // ============================================================
   const sendMessage = useCallback(
     async (content: string): Promise<boolean> => {
       const text = content.trim();
@@ -613,7 +628,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   // ============================================================
   // Realtime: پیام‌های گفتگوی فعال
-  // ← conversations هم آپدیت و مرتب می‌شود
   // ============================================================
   useEffect(() => {
     if (!userId || !activeConversation) return;
@@ -683,7 +697,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [userId, activeConversation, markAsRead]);
 
   // ============================================================
-  // Realtime: گفتگوی جدید (عضویت)
+  // Realtime: عضویت جدید (گفتگوی جدید)
   // ============================================================
   useEffect(() => {
     if (!userId) return;
@@ -710,8 +724,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [userId, loadConversations]);
 
   // ============================================================
-  // Realtime: همه پیام‌ها → badge + sort
-  // ← حتی اگر گفتگو فعال باشد، conversations را آپدیت می‌کند
+  // Realtime: همه پیام‌ها (badge + sort)
   // ============================================================
   useEffect(() => {
     if (!userId) return;
@@ -768,6 +781,80 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, loadConversations]);
 
+  // ============================================================
+  // updateUsername
+  // ============================================================
+  const updateUsername = useCallback(
+    async (raw: string): Promise<UpdateUsernameResult> => {
+      if (!userId) return { ok: false, error: "Not logged in" };
+
+      const username = raw.trim().toLowerCase();
+
+      if (!/^[a-z0-9_]{3,20}$/.test(username)) {
+        return {
+          ok: false,
+          error:
+            "Username must be 3–20 characters: lowercase letters, numbers, or underscore.",
+        };
+      }
+
+      // چک یکتایی برای UX بهتر
+      const { data: existing, error: checkErr } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("username", username)
+        .neq("id", userId)
+        .maybeSingle();
+
+      if (checkErr) return { ok: false, error: checkErr.message };
+      if (existing) {
+        return { ok: false, error: "That username is already taken." };
+      }
+
+      const { error: updateErr } = await supabase
+        .from("profiles")
+        .update({ username })
+        .eq("id", userId);
+
+      if (updateErr) {
+        if (
+          updateErr.message.includes("profiles_username_unique") ||
+          updateErr.message.includes("duplicate key")
+        ) {
+          return { ok: false, error: "That username is already taken." };
+        }
+        if (updateErr.message.includes("profiles_username_format")) {
+          return {
+            ok: false,
+            error:
+              "Invalid format. Use 3–20 lowercase letters, numbers, or _.",
+          };
+        }
+        return { ok: false, error: updateErr.message };
+      }
+
+      // آپدیت state
+      setMyProfile((prev) => (prev ? { ...prev, username } : prev));
+
+      // اگر این کاربر در لیست مخاطبین هم بود، همان‌جا هم آپدیت کن
+      setContacts((prev) =>
+        prev.map((c) => (c.id === userId ? { ...c, username } : c))
+      );
+
+      // در گفتگوها هم otherUser خودت (اگر بود) آپدیت شود
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.otherUser?.id === userId
+            ? { ...c, otherUser: { ...c.otherUser, username } }
+            : c
+        )
+      );
+
+      return { ok: true };
+    },
+    [userId]
+  );
+
   const signOut = useCallback(async () => {
     setError("");
     const { error: signOutError } = await supabase.auth.signOut();
@@ -800,6 +887,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     sendMessage,
     clearActive,
     markAsRead,
+    updateUsername,
     signOut,
   };
 
