@@ -12,7 +12,6 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import {
-  displayName,
   getErrorMessage,
   type Conversation,
   type Message,

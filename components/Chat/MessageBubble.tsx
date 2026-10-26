@@ -3,7 +3,7 @@
 
 import { CheckCheck, Mic, Download } from "lucide-react";
 import type { Message } from "@/lib/chat";
-
+import Image from "next/image";
 type Props = {
   message: Message;
   mine: boolean;
@@ -65,12 +65,14 @@ export default function MessageBubble({ message, mine }: Props) {
         {/* IMAGE RENDER */}
         {isImage && (
           <div className="group relative overflow-hidden rounded-lg">
-            <img 
-              src={mediaUrl} 
-              alt="Attachment" 
-              className="max-h-[300px] w-full object-cover" 
-              loading="lazy"
-            />
+            <Image
+  src={"https://img.icons8.com/?size=100&id=VZN61f142psg&format=png&color=000000"}
+  alt="Shared image"
+  width={600}
+  height={400}
+  className="..."
+  unoptimized
+/>
             {/* Image Hover Download Button */}
             <button
               onClick={handleDownload}

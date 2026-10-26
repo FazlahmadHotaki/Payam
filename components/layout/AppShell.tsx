@@ -1,7 +1,6 @@
 // components/layout/AppShell.tsx
 "use client";
 
-import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
 import { useChat } from "@/lib/chat-context";

@@ -6,7 +6,6 @@ import { ArrowLeft, MoreVertical, Phone, Search } from "lucide-react";
 import MessageBubble from "@/components/Chat/MessageBubble";
 import MessageInput from "@/components/Chat/MessageInput";
 import { displayName, type Conversation, type Message } from "@/lib/chat";
-import { useChat } from "@/lib/chat-context";
 
 type Props = {
   activeConversation: Conversation | null;
@@ -32,7 +31,6 @@ export default function ChatWindow({
   onBack,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
-  const { clearActive } = useChat();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -62,7 +60,7 @@ export default function ChatWindow({
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <button
             type="button"
-            onClick={clearActive}
+            onClick={onBack}
             className="shrink-0 rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 md:hidden"
           >
             <ArrowLeft size={20} />
