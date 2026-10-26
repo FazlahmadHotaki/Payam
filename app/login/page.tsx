@@ -31,6 +31,10 @@ export default function LoginPage() {
           router.replace("/");
           router.refresh();
         }
+      } catch {
+        if (!cancelled) {
+          setError("Unable to check your session. Please try again.");
+        }
       } finally {
         if (!cancelled) {
           setCheckingSession(false);
@@ -52,27 +56,55 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      const cleanEmail = email.trim();
+
       if (mode === "signup") {
         if (!name.trim()) {
-          setError("Please enter your name.");
+          setError("Please enter your full name.");
           return;
         }
 
-        const { data, error: signUpError } = await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-          options: {
-            data: { display_name: name.trim() },
-          },
-        });
+        const { data, error: signUpError } =
+          await supabase.auth.signUp({
+            email: cleanEmail,
+            password,
+            options: {
+              data: {
+                display_name: name.trim(),
+              },
+            },
+          });
 
-        if (signUpError) throw signUpError;
+        if (signUpError) {
+          const errorText = signUpError.message.toLowerCase();
+
+          if (
+            errorText.includes("email rate limit") ||
+            errorText.includes("rate limit exceeded")
+          ) {
+            setError(
+              "Signup emails have reached a temporary sending limit. Please wait before trying again, or configure custom SMTP in Supabase under Authentication → Emails."
+            );
+            return;
+          }
+
+          if (errorText.includes("already registered")) {
+            setError(
+              "This email may already have an account. Please try logging in."
+            );
+            setMode("login");
+            return;
+          }
+
+          throw signUpError;
+        }
 
         if (!data.session) {
           setMessage(
-            "Your account was created. Check your email to confirm your account, then log in."
+            "Your signup request was accepted. If email confirmation is enabled, check your inbox before logging in."
           );
           setMode("login");
+          setPassword("");
           return;
         }
 
@@ -83,15 +115,37 @@ export default function LoginPage() {
 
       const { error: signInError } =
         await supabase.auth.signInWithPassword({
-          email: email.trim(),
+          email: cleanEmail,
           password,
         });
 
-      if (signInError) throw signInError;
+      if (signInError) {
+        const errorText = signInError.message.toLowerCase();
+
+        if (
+          errorText.includes("invalid login credentials")
+        ) {
+          setError(
+            "Incorrect email or password. Check your details or create an account."
+          );
+          return;
+        }
+
+        if (
+          errorText.includes("email not confirmed")
+        ) {
+          setError(
+            "Please confirm your email address before logging in."
+          );
+          return;
+        }
+
+        throw signInError;
+      }
 
       router.replace("/");
       router.refresh();
-    } catch (err) {
+    } catch (err: unknown) {
       setError(
         err instanceof Error
           ? err.message
@@ -100,6 +154,12 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function changeMode(nextMode: "login" | "signup") {
+    setMode(nextMode);
+    setError("");
+    setMessage("");
   }
 
   if (checkingSession) {
@@ -134,11 +194,7 @@ export default function LoginPage() {
         <div className="mb-6 grid grid-cols-2 rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
           <button
             type="button"
-            onClick={() => {
-              setMode("login");
-              setError("");
-              setMessage("");
-            }}
+            onClick={() => changeMode("login")}
             className={`rounded-md px-4 py-2 text-sm font-medium transition ${
               mode === "login"
                 ? "bg-white text-slate-900 shadow dark:bg-slate-700 dark:text-white"
@@ -150,11 +206,7 @@ export default function LoginPage() {
 
           <button
             type="button"
-            onClick={() => {
-              setMode("signup");
-              setError("");
-              setMessage("");
-            }}
+            onClick={() => changeMode("signup")}
             className={`rounded-md px-4 py-2 text-sm font-medium transition ${
               mode === "signup"
                 ? "bg-white text-slate-900 shadow dark:bg-slate-700 dark:text-white"
@@ -192,6 +244,7 @@ export default function LoginPage() {
               >
                 Full name
               </label>
+
               <input
                 id="name"
                 type="text"
@@ -212,6 +265,7 @@ export default function LoginPage() {
             >
               Email address
             </label>
+
             <input
               id="email"
               type="email"
@@ -231,11 +285,14 @@ export default function LoginPage() {
             >
               Password
             </label>
+
             <input
               id="password"
               type="password"
               autoComplete={
-                mode === "login" ? "current-password" : "new-password"
+                mode === "login"
+                  ? "current-password"
+                  : "new-password"
               }
               value={password}
               onChange={(event) => setPassword(event.target.value)}
@@ -265,11 +322,9 @@ export default function LoginPage() {
             : "Already have an account?"}{" "}
           <button
             type="button"
-            onClick={() => {
-              setMode(mode === "login" ? "signup" : "login");
-              setError("");
-              setMessage("");
-            }}
+            onClick={() =>
+              changeMode(mode === "login" ? "signup" : "login")
+            }
             className="font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400"
           >
             {mode === "login" ? "Create an account" : "Log in"}
@@ -279,3 +334,4 @@ export default function LoginPage() {
     </main>
   );
 }
+// fsd
