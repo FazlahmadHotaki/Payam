@@ -3,8 +3,8 @@
 
 import { useEffect, useRef } from "react";
 import { ArrowLeft, MoreVertical, Phone, Search } from "lucide-react";
-import MessageBubble from "@/components/chat/MessageBubble";
-import MessageInput from "@/components/chat/MessageInput";
+import MessageBubble from "@/components/Chat/MessageBubble";
+import MessageInput from "@/components/Chat/MessageInput";
 import { displayName, type Conversation, type Message } from "@/lib/chat";
 import { useChat } from "@/lib/chat-context";
 
