@@ -26,6 +26,15 @@ function getErrorMessage(error: unknown): string {
   return "An unexpected error occurred.";
 }
 
+/** مرتب‌سازی گفتگوها بر اساس جدیدترین پیام (نزولی) */
+function sortByRecency(list: Conversation[]): Conversation[] {
+  return [...list].sort((a, b) => {
+    const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+    const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+    return tb - ta;
+  });
+}
+
 type ChatContextType = {
   userId: string;
   myProfile: Profile | null;
@@ -74,7 +83,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     conversationsRef.current = conversations;
   }, [conversations]);
 
-  // شمارنده unread محلی برای کلید گفتگوی فعال (تا از DB نخوانیم مدام)
   const activeIdRef = useRef<string | null>(null);
   useEffect(() => {
     activeIdRef.current = activeConversation?.id ?? null;
@@ -141,30 +149,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loadContacts = useCallback(async (uid: string) => {
-    const { data: hiddenRows, error: hiddenError } = await supabase
-      .from("contact_hides")
-      .select("hidden_user_id")
-      .eq("user_id", uid);
-
-    if (hiddenError) {
-      throw new Error(`Loading hidden contacts failed: ${hiddenError.message}`);
-    }
-
-    const hiddenIds = (hiddenRows ?? []).map(
-      (row) => row.hidden_user_id as string
-    );
-
-    let query = supabase
+    const { data, error: contactsError } = await supabase
       .from("profiles")
       .select("id, display_name, email, username")
       .neq("id", uid)
       .order("display_name");
-
-    if (hiddenIds.length > 0) {
-      query = query.not("id", "in", `(${hiddenIds.join(",")})`);
-    }
-
-    const { data, error: contactsError } = await query;
 
     if (contactsError) {
       throw new Error(`Loading contacts failed: ${contactsError.message}`);
@@ -243,6 +232,32 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         );
       }
 
+      // آخرین پیام هر گفتگو
+      const { data: latestMessages, error: latestError } = await supabase
+        .from("messages")
+        .select("conversation_id, content, created_at, sender_id")
+        .in("conversation_id", conversationIds)
+        .order("created_at", { ascending: false });
+
+      if (latestError) {
+        console.error("Loading latest messages failed:", latestError.message);
+      }
+
+      const latestMap = new Map<
+        string,
+        { content: string; created_at: string; sender_id: string }
+      >();
+      for (const m of latestMessages ?? []) {
+        const convId = m.conversation_id as string;
+        if (!latestMap.has(convId)) {
+          latestMap.set(convId, {
+            content: m.content as string,
+            created_at: m.created_at as string,
+            sender_id: m.sender_id as string,
+          });
+        }
+      }
+
       const profileMap = new Map(
         ((profileRows ?? []) as Profile[]).map((profile) => [
           profile.id,
@@ -260,29 +275,32 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const loadedConversations = (conversationRows ?? []).map(
+      const loadedConversations: Conversation[] = (conversationRows ?? []).map(
         (conversation) => {
           const conversationId = conversation.id as string;
           const otherUserId = otherUserMap.get(conversationId);
+          const latest = latestMap.get(conversationId);
+
           return {
             ...conversation,
             otherUser: otherUserId
               ? profileMap.get(otherUserId) ?? null
               : null,
-          } as Conversation;
+            lastMessageAt: latest?.created_at ?? null,
+            lastMessage: latest?.content ?? null,
+            lastMessageSenderId: latest?.sender_id ?? null,
+          } as unknown as Conversation;
         }
       );
 
-      setConversations(loadedConversations);
+      const sorted = sortByRecency(loadedConversations);
+      setConversations(sorted);
 
       setActiveConversation((current) => {
         if (!current) return null;
-        return (
-          loadedConversations.find((c) => c.id === current.id) ?? null
-        );
+        return sorted.find((c) => c.id === current.id) ?? null;
       });
 
-      // شمارش unread از DB
       void computeUnreadCounts(uid);
     },
     [computeUnreadCounts]
@@ -382,7 +400,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, [isLogin, router, clearUserData]);
 
-  // بارگذاری پیام‌های گفتگوی فعال
+  // پیام‌های گفتگوی فعال
   useEffect(() => {
     let cancelled = false;
 
@@ -420,9 +438,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, activeConversation]);
 
-  // ============================================================
-  // علامت‌گذاری به‌عنوان خوانده‌شده
-  // ============================================================
+  // markAsRead
   const markAsRead = useCallback(
     async (conversationId: string) => {
       if (!userId) return;
@@ -446,9 +462,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId]
   );
 
-  // ============================================================
-  // باز کردن گفتگو (ساخت یا بازیابی)
-  // ============================================================
+  // openConversation
   const openConversation = useCallback(
     async (contact: Profile): Promise<void> => {
       if (!userId) {
@@ -497,7 +511,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               const selected = {
                 ...existing,
                 otherUser: contact,
-              } as Conversation;
+              } as unknown as Conversation;
               setActiveConversation(selected);
               setMessages([]);
               void markAsRead(selected.id);
@@ -525,7 +539,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const selected = {
           ...created,
           otherUser: contact,
-        } as Conversation;
+        } as unknown as Conversation;
 
         setMessages([]);
         setActiveConversation(selected);
@@ -539,9 +553,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, router, loadConversations, markAsRead]
   );
 
-  // ============================================================
-  // ارسال پیام
-  // ============================================================
+  // sendMessage
   const sendMessage = useCallback(
     async (content: string): Promise<boolean> => {
       const text = content.trim();
@@ -573,6 +585,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           );
         });
 
+        setConversations((prev) =>
+          sortByRecency(
+            prev.map((c) =>
+              c.id === activeConversation.id
+                ? {
+                    ...c,
+                    lastMessageAt: newMessage.created_at,
+                    lastMessage: newMessage.content,
+                    lastMessageSenderId: newMessage.sender_id,
+                  }
+                : c
+            )
+          )
+        );
+
         return true;
       } catch (err) {
         setError(getErrorMessage(err));
@@ -585,7 +612,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   // ============================================================
-  // Realtime: گفتگوی فعال
+  // Realtime: پیام‌های گفتگوی فعال
+  // ← conversations هم آپدیت و مرتب می‌شود
   // ============================================================
   useEffect(() => {
     if (!userId || !activeConversation) return;
@@ -613,6 +641,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           }
 
           const newMessage = payload.new as Message;
+
           setMessages((current) => {
             if (current.some((m) => m.id === newMessage.id)) {
               return current.map((m) =>
@@ -626,7 +655,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             );
           });
 
-          // اگر پیام از طرف مقابل آمد و گفتگو باز است، همان لحظه خوانده می‌شود
+          setConversations((prev) =>
+            sortByRecency(
+              prev.map((c) =>
+                c.id === conversationId
+                  ? {
+                      ...c,
+                      lastMessageAt: newMessage.created_at,
+                      lastMessage: newMessage.content,
+                      lastMessageSenderId: newMessage.sender_id,
+                    }
+                  : c
+              )
+            )
+          );
+
           if (newMessage.sender_id !== userId) {
             void markAsRead(conversationId);
           }
@@ -667,7 +710,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [userId, loadConversations]);
 
   // ============================================================
-  // Realtime: همه پیام‌ها → badge + reload اگر گفتگو ناشناخته است
+  // Realtime: همه پیام‌ها → badge + sort
+  // ← حتی اگر گفتگو فعال باشد، conversations را آپدیت می‌کند
   // ============================================================
   useEffect(() => {
     if (!userId) return;
@@ -680,24 +724,39 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         (payload) => {
           const newMessage = payload.new as Message;
 
-          // پیام خودت → ignore
           if (newMessage.sender_id === userId) return;
 
-          // اگر گفتگوی فعال است → useEffect قبلی مدیریتش می‌کند
-          if (activeIdRef.current === newMessage.conversation_id) return;
+          const isActive =
+            activeIdRef.current === newMessage.conversation_id;
 
-          // پیام در گفتگوی دیگر → badge++
-          setUnreadCounts((prev) => ({
-            ...prev,
-            [newMessage.conversation_id]:
-              (prev[newMessage.conversation_id] ?? 0) + 1,
-          }));
+          if (!isActive) {
+            setUnreadCounts((prev) => ({
+              ...prev,
+              [newMessage.conversation_id]:
+                (prev[newMessage.conversation_id] ?? 0) + 1,
+            }));
+          }
 
-          // اگر گفتگو در لیست نیست، لیست را reload کن
           const known = conversationsRef.current.some(
             (c) => c.id === newMessage.conversation_id
           );
-          if (!known) {
+
+          if (known) {
+            setConversations((prev) =>
+              sortByRecency(
+                prev.map((c) =>
+                  c.id === newMessage.conversation_id
+                    ? {
+                        ...c,
+                        lastMessageAt: newMessage.created_at,
+                        lastMessage: newMessage.content,
+                        lastMessageSenderId: newMessage.sender_id,
+                      }
+                    : c
+                )
+              )
+            );
+          } else {
             void loadConversations(userId);
           }
         }

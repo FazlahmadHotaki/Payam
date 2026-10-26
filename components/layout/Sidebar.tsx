@@ -1,7 +1,7 @@
 // components/layout/Sidebar.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Menu,
@@ -16,29 +16,31 @@ import {
 import { displayName, relativeTime } from "@/lib/chat";
 import { useChat } from "@/lib/chat-context";
 import { supabase } from "@/lib/supabase/client";
-import type { Profile } from "@/lib/chat";
+import type { Profile, Conversation } from "@/lib/chat";
 
 export default function Sidebar() {
   const {
     conversations,
     activeConversation,
     myProfile,
+    myProfileId,
     loading,
     openConversation,
     signOut,
     unreadCounts,
     markAsRead,
     setActiveConversation,
-  } = useChat();
+  } = useChat() as ReturnType<typeof useChat> & {
+    myProfileId?: string;
+  };
 
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Global search states
+  // Search
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
-  // Debounced search logic
   useEffect(() => {
     if (!query.trim()) {
       setSearchResults([]);
@@ -52,7 +54,7 @@ export default function Sidebar() {
       const { data } = await supabase
         .from("profiles")
         .select("id, display_name, email, username")
-        .neq("id", myProfile?.id)
+        .neq("id", myProfile?.id ?? "00000000-0000-0000-0000-000000000000")
         .or(
           `display_name.ilike.${searchTerm},username.ilike.${searchTerm},email.ilike.${searchTerm}`
         )
@@ -65,33 +67,43 @@ export default function Sidebar() {
     return () => clearTimeout(delayDebounce);
   }, [query, myProfile?.id]);
 
-  // Helper to handle clicking a user from search
+  // ✅ Safety net: همیشه لیست را بر اساس lastMessageAt نزولی مرتب نگه‌دار
+  const sortedConversations = useMemo(() => {
+    return [...conversations].sort((a, b) => {
+      const ta = a.lastMessageAt
+        ? new Date(a.lastMessageAt).getTime()
+        : 0;
+      const tb = b.lastMessageAt
+        ? new Date(b.lastMessageAt).getTime()
+        : 0;
+      return tb - ta;
+    });
+  }, [conversations]);
+
+  // عنوان تب با جمع unread
+  const totalUnread = useMemo(
+    () => Object.values(unreadCounts).reduce((a, b) => a + b, 0),
+    [unreadCounts]
+  );
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.title = totalUnread > 0 ? `(${totalUnread}) Payam` : "Payam";
+  }, [totalUnread]);
+
   const handleStartChat = async (profile: Profile) => {
     await openConversation(profile);
     setQuery("");
   };
 
-  // Helper to handle clicking a conversation in the list
-  const handleSelectConversation = async (c: (typeof conversations)[number]) => {
-    // اگر گفتگوی فعال است، فقط unread را پاک کن (markAsRead)
-    // اگر نیست، مستقیم ست کن و markAsRead بزن
+  const handleSelectConversation = async (c: Conversation) => {
     setActiveConversation(c);
     await markAsRead(c.id);
   };
-
-  // مجموع unreadها برای نمایش در تب مرورگر (اختیاری)
-  const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    document.title =
-      totalUnread > 0 ? `(${totalUnread}) Payam` : "Payam";
-  }, [totalUnread]);
 
   return (
     <aside className="relative flex h-full w-full flex-col bg-white dark:bg-slate-900">
       {/* Top Bar */}
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 px-3 dark:border-slate-800">
-        {/* Hamburger Menu */}
         <div className="relative">
           <button
             type="button"
@@ -227,14 +239,22 @@ export default function Sidebar() {
               <p className="p-4 text-center text-sm text-slate-500">
                 Loading...
               </p>
-            ) : conversations.length === 0 ? (
+            ) : sortedConversations.length === 0 ? (
               <p className="p-4 text-center text-sm text-slate-500">
                 No chats yet.
               </p>
             ) : (
-              conversations.map((c) => {
+              sortedConversations.map((c) => {
                 const active = activeConversation?.id === c.id;
                 const unread = unreadCounts[c.id] ?? 0;
+
+                const preview = c.lastMessage
+                  ? c.lastMessageSenderId === myProfile?.id
+                    ? `You: ${c.lastMessage}`
+                    : c.lastMessage
+                  : c.otherUser?.username
+                  ? `@${c.otherUser.username}`
+                  : c.otherUser?.email ?? "";
 
                 return (
                   <button
@@ -244,7 +264,7 @@ export default function Sidebar() {
                       active
                         ? "bg-[#3390ec] text-white"
                         : unread > 0
-                        ? "bg-blue-50/60 dark:bg-blue-950/20 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                        ? "bg-blue-50/60 hover:bg-blue-50 dark:bg-blue-950/20 dark:hover:bg-blue-950/40"
                         : "hover:bg-slate-100 dark:hover:bg-slate-800"
                     }`}
                   >
@@ -271,13 +291,15 @@ export default function Sidebar() {
                         >
                           {displayName(c.otherUser)}
                         </p>
-                        <span
-                          className={`shrink-0 text-xs ${
-                            active ? "text-white/80" : "text-slate-500"
-                          }`}
-                        >
-                          {relativeTime(c.updatedAt)}
-                        </span>
+                        {c.lastMessageAt && (
+                          <span
+                            className={`shrink-0 text-xs ${
+                              active ? "text-white/80" : "text-slate-500"
+                            }`}
+                          >
+                            {relativeTime(c.lastMessageAt)}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center justify-between gap-2">
@@ -290,11 +312,7 @@ export default function Sidebar() {
                               : "text-slate-500"
                           }`}
                         >
-                          {unread > 0
-                            ? `${unread} new message${unread > 1 ? "s" : ""} from ${displayName(c.otherUser)}`
-                            : c.otherUser.username
-                            ? `@${c.otherUser.username}`
-                            : c.otherUser.email}
+                          {preview}
                         </p>
 
                         {unread > 0 && !active && (
