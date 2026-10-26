@@ -14,10 +14,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-white dark:bg-slate-900">
-      {/* 
-        Left Pane (Sidebar) 
-        Hidden on mobile if a chat is active. 
-      */}
+      {/* Left Pane (Sidebar) */}
       <div
         className={`h-full w-full shrink-0 border-r border-slate-200 dark:border-slate-800 md:flex md:w-[380px] lg:w-[420px] ${
           activeConversation ? "hidden md:flex" : "flex"
@@ -26,12 +23,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <Sidebar />
       </div>
 
-      {/* 
-        Right Pane (Chat Area) 
-        Hidden on mobile if NO chat is active.
-      */}
+      {/* Right Pane (Chat Area / Pages) */}
       <div
-        className={`h-full min-w-0 flex-1 flex-col ${
+        className={`h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto ${
           activeConversation ? "flex" : "hidden md:flex"
         }`}
       >
