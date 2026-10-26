@@ -52,9 +52,7 @@ export default function ChatWindow({
   const username = activeConversation.otherUser.username;
 
   return (
-    /* Strict Flex Layout: locks header to top, input to bottom */
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#e6ebee] dark:bg-[#0e1621]">
-      
       {/* FIXED HEADER */}
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-2 dark:border-slate-800 dark:bg-slate-900 sm:px-4">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -74,7 +72,6 @@ export default function ChatWindow({
             <h2 className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100 sm:text-base">
               {name}
             </h2>
-            {/* SHOW USERNAME HERE */}
             <p className="truncate text-xs text-blue-500 dark:text-blue-400">
               @{username || "username"}
             </p>
@@ -94,12 +91,10 @@ export default function ChatWindow({
         </div>
       </header>
 
-      {/* SCROLLABLE MESSAGE AREA */}
+      {/* SCROLLABLE MESSAGE AREA — background: /payambg */}
       <div
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 sm:p-6"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239C92AC' fill-opacity='0.08'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-        }}
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-[#e6ebee] bg-cover bg-center bg-no-repeat bg-fixed p-3 sm:p-6 dark:bg-[#0e1621]"
+        style={{ backgroundImage: "url('/payambg.jpg')" }}
       >
         {loadingMessages && (
           <p className="text-center text-sm text-slate-500">Loading messages...</p>
@@ -107,8 +102,12 @@ export default function ChatWindow({
 
         {!loadingMessages && messages.length === 0 && (
           <div className="m-auto flex flex-col items-center rounded-xl bg-white/80 p-4 text-center shadow-sm backdrop-blur-sm dark:bg-slate-800/80">
-            <p className="font-medium text-slate-700 dark:text-slate-300">No messages here yet...</p>
-            <p className="text-sm text-slate-500">Send a message to start the conversation!</p>
+            <p className="font-medium text-slate-700 dark:text-slate-300">
+              No messages here yet...
+            </p>
+            <p className="text-sm text-slate-500">
+              Send a message to start the conversation!
+            </p>
           </div>
         )}
 

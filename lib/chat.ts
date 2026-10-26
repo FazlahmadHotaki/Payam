@@ -4,7 +4,7 @@ export type Profile = {
   id: string;
   display_name: string | null;
   email: string | null;
-  username?: string | null; // <-- Added for unique usernames
+  username?: string | null;
 };
 
 export type Message = {
@@ -18,6 +18,13 @@ export type Message = {
 export type Conversation = {
   id: string;
   otherUser: Profile;
+
+  // ← جدید: برای مرتب‌سازی و پیش‌نمایش پیام آخر
+  lastMessageAt?: string | null;
+  lastMessage?: string | null;
+  lastMessageSenderId?: string | null;
+
+  // ← legacy (قبلاً استفاده می‌شد؛ حالا معمولاً null است)
   updatedAt?: string;
 };
 
@@ -35,7 +42,8 @@ export function getErrorMessage(error: unknown): string {
 /**
  * Prefer display_name, fall back to username, then email.
  */
-export function displayName(profile: Profile): string {
+export function displayName(profile: Profile | null | undefined): string {
+  if (!profile) return "Payam User";
   return (
     profile.display_name?.trim() ||
     profile.username ||
@@ -47,7 +55,7 @@ export function displayName(profile: Profile): string {
 /**
  * Human-friendly time distance from now.
  */
-export function relativeTime(iso?: string): string {
+export function relativeTime(iso?: string | null): string {
   if (!iso) return "";
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
