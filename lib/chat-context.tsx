@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   useCallback,
   type ReactNode,
@@ -34,6 +35,7 @@ type ChatContextType = {
   conversations: Conversation[];
   activeConversation: Conversation | null;
   messages: Message[];
+  unreadCounts: Record<string, number>;
   loading: boolean;
   loadingMessages: boolean;
   sending: boolean;
@@ -45,6 +47,7 @@ type ChatContextType = {
   openConversation: (contact: Profile) => Promise<void>;
   sendMessage: (content: string) => Promise<boolean>;
   clearActive: () => void;
+  clearUnread: (conversationId: string) => void;
   signOut: () => Promise<void>;
 };
 
@@ -62,10 +65,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [activeConversation, setActiveConversation] =
     useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+
+  // برای چک کردن وجود یک گفتگو در لیست، بدون نیاز به dependency در useEffect
+  const conversationsRef = useRef<Conversation[]>([]);
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
 
   const clearUserData = useCallback(() => {
     setUserId("");
@@ -74,12 +84,22 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setConversations([]);
     setMessages([]);
     setActiveConversation(null);
+    setUnreadCounts({});
   }, []);
 
   const clearActive = useCallback(() => {
     setActiveConversation(null);
     setMessages([]);
     setError("");
+  }, []);
+
+  const clearUnread = useCallback((conversationId: string) => {
+    setUnreadCounts((prev) => {
+      if (!(conversationId in prev)) return prev;
+      const next = { ...prev };
+      delete next[conversationId];
+      return next;
+    });
   }, []);
 
   const loadContacts = useCallback(async (uid: string) => {
@@ -228,7 +248,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Check authentication and load the current user's data.
+  // ============================================================
+  // Initialize: auth check + load profile/contacts/conversations
+  // ============================================================
   useEffect(() => {
     let cancelled = false;
 
@@ -309,15 +331,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [
-    isLogin,
-    router,
-    clearUserData,
-    loadContacts,
-    loadConversations,
-  ]);
+  }, [isLogin, router, clearUserData, loadContacts, loadConversations]);
 
-  // React to sign-out events.
+  // ============================================================
+  // React to sign-out events
+  // ============================================================
   useEffect(() => {
     if (isLogin) return;
 
@@ -333,7 +351,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, [isLogin, router, clearUserData]);
 
-  // Load messages for the selected conversation.
+  // ============================================================
+  // Load messages for the active conversation
+  // ============================================================
   useEffect(() => {
     let cancelled = false;
 
@@ -374,7 +394,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, activeConversation]);
 
-  // Open an existing conversation, or create one with the selected contact.
+  // ============================================================
+  // Open an existing conversation, or create one via RPC
+  // ============================================================
   const openConversation = useCallback(
     async (contact: Profile): Promise<void> => {
       if (!userId) {
@@ -388,7 +410,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setError("");
 
       try {
-        // 1) آیا از قبل یک گفتگوی مشترک با این مخاطب داریم؟
+        // 1) آیا از قبل گفتگوی مشترک با این مخاطب داریم؟
         const { data: myMemberships, error: myMembershipError } =
           await supabase
             .from("conversation_members")
@@ -429,13 +451,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
               setActiveConversation(selected);
               setMessages([]);
+              clearUnread(selected.id);
               return;
             }
           }
         }
 
-        // 2) گفتگوی جدید را به‌صورت اتمیک از طریق RPC بساز
-        //    (تابع create_conversation_with در Supabase تعریف شده است)
+        // 2) گفتگوی جدید را اتمیک از طریق RPC بساز
         const { data: newConversationId, error: rpcError } = await supabase
           .rpc("create_conversation_with", { contact_id: contact.id });
 
@@ -445,7 +467,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           throw new Error("Creating conversation failed: no id returned.");
         }
 
-        // 3) رکورد گفتگو را بخوان (حالا کاربر عضو است، پس SELECT جواب می‌دهد)
+        // 3) رکورد گفتگو را بخوان (حالا کاربر عضو است)
         const { data: created, error: fetchError } = await supabase
           .from("conversations")
           .select("*")
@@ -461,16 +483,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         setMessages([]);
         setActiveConversation(selected);
+        clearUnread(selected.id);
         await loadConversations(userId);
         setActiveConversation(selected);
       } catch (err) {
         setError(getErrorMessage(err));
       }
     },
-    [userId, router, loadConversations]
+    [userId, router, loadConversations, clearUnread]
   );
 
-  // Send a message and return true only when insertion succeeds.
+  // ============================================================
+  // Send a message
+  // ============================================================
   const sendMessage = useCallback(
     async (content: string): Promise<boolean> => {
       const text = content.trim();
@@ -520,7 +545,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, activeConversation, sending]
   );
 
-  // Subscribe to real-time updates in the active conversation.
+  // ============================================================
+  // Realtime: پیام‌های گفتگوی فعال
+  // ============================================================
   useEffect(() => {
     if (!userId || !activeConversation) return;
 
@@ -573,6 +600,87 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, activeConversation]);
 
+  // ============================================================
+  // Realtime: وقتی تو به یک گفتگوی جدید اضافه شدی
+  // (حتی اگر مخاطب را در لیست contacts نداشته باشی)
+  // ============================================================
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel(`membership-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "conversation_members",
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          // یک گفتگوی جدید به تو اضافه شد
+          void loadConversations(userId);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [userId, loadConversations]);
+
+  // ============================================================
+  // Realtime: هر پیام جدید در هر گفتگویی
+  // برای unread badge و reload لیست اگر گفتگو ناشناخته است
+  // ============================================================
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel(`all-messages-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          const newMessage = payload.new as Message;
+
+          // پیام خودت → ignore
+          if (newMessage.sender_id === userId) return;
+
+          // پیام در گفتگوی فعال → useEffect قبلی مدیریت می‌کند
+          if (
+            activeConversation &&
+            newMessage.conversation_id === activeConversation.id
+          ) {
+            return;
+          }
+
+          // پیام در گفتگوی دیگر → badge + reload اگر لازم است
+          setUnreadCounts((prev) => ({
+            ...prev,
+            [newMessage.conversation_id]:
+              (prev[newMessage.conversation_id] ?? 0) + 1,
+          }));
+
+          const known = conversationsRef.current.some(
+            (c) => c.id === newMessage.conversation_id
+          );
+
+          if (!known) {
+            void loadConversations(userId);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [userId, activeConversation, loadConversations]);
+
+  // ============================================================
+  // Sign out
+  // ============================================================
   const signOut = useCallback(async () => {
     setError("");
 
@@ -595,6 +703,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     conversations,
     activeConversation,
     messages,
+    unreadCounts,
     loading,
     loadingMessages,
     sending,
@@ -606,6 +715,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     openConversation,
     sendMessage,
     clearActive,
+    clearUnread,
     signOut,
   };
 
