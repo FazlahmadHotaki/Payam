@@ -1,7 +1,7 @@
 // components/layout/Sidebar.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Menu,
@@ -23,59 +23,91 @@ export default function Sidebar() {
     conversations,
     activeConversation,
     myProfile,
-    myProfileId,
     loading,
     openConversation,
     signOut,
     unreadCounts,
     markAsRead,
     setActiveConversation,
-  } = useChat() as ReturnType<typeof useChat> & {
-    myProfileId?: string;
-  };
+  } = useChat();
 
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-
-  // Search
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
+  // ← برای لغو نتایج کهنه
+  const latestQueryRef = useRef("");
+
+  // ============================================================
+  // جستجو
+  // ============================================================
   useEffect(() => {
-    if (!query.trim()) {
+    const q = query.trim();
+
+    if (!q) {
+      latestQueryRef.current = "";
       setSearchResults([]);
+      setIsSearching(false);
       return;
     }
 
-    const delayDebounce = setTimeout(async () => {
-      setIsSearching(true);
-      const searchTerm = `%${query.trim()}%`;
+    if (!myProfile?.id) return;
 
-      const { data } = await supabase
+    // درخواست جدید → نتایج قبلی را فوراً پاک کن
+    latestQueryRef.current = q;
+    setSearchResults([]);
+    setIsSearching(true);
+
+    const delayDebounce = setTimeout(async () => {
+      // اگر کاربر بین debounce دوباره تایپ کرد، این درخواست منسوخ است
+      if (latestQueryRef.current !== q) return;
+
+      // فرار از کاراکترهای خاص در PostgREST
+      const escaped = q.replace(/[\\%_]/g, "\\$&");
+      const searchTerm = `%${escaped}%`;
+
+      const { data, error } = await supabase
         .from("profiles")
         .select("id, display_name, email, username")
-        .neq("id", myProfile?.id ?? "00000000-0000-0000-0000-000000000000")
+        .neq("id", myProfile.id)
         .or(
           `display_name.ilike.${searchTerm},username.ilike.${searchTerm},email.ilike.${searchTerm}`
         )
         .limit(20);
 
-      if (data) setSearchResults(data as Profile[]);
+      // ← چک نهایی: اگر query عوض شده، این نتیجه را نادیده بگیر
+      if (latestQueryRef.current !== q) return;
+
+      if (error) {
+        console.error("Search failed:", error.message);
+        setSearchResults([]);
+      } else {
+        // ← فیلتر دوم سمت کلاینت (safety net)
+        const lower = q.toLowerCase();
+        const filtered = (data ?? []).filter((p) => {
+          const haystack = [p.display_name, p.username, p.email]
+            .filter((s): s is string => typeof s === "string")
+            .map((s) => s.toLowerCase())
+            .join(" ");
+          return haystack.includes(lower);
+        });
+        setSearchResults(filtered as Profile[]);
+      }
+
       setIsSearching(false);
     }, 300);
 
     return () => clearTimeout(delayDebounce);
   }, [query, myProfile?.id]);
 
-  // ✅ Safety net: همیشه لیست را بر اساس lastMessageAt نزولی مرتب نگه‌دار
+  // ============================================================
+  // مرتب‌سازی گفتگوها بر اساس جدیدترین پیام
+  // ============================================================
   const sortedConversations = useMemo(() => {
     return [...conversations].sort((a, b) => {
-      const ta = a.lastMessageAt
-        ? new Date(a.lastMessageAt).getTime()
-        : 0;
-      const tb = b.lastMessageAt
-        ? new Date(b.lastMessageAt).getTime()
-        : 0;
+      const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+      const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
       return tb - ta;
     });
   }, [conversations]);
@@ -104,6 +136,7 @@ export default function Sidebar() {
     <aside className="relative flex h-full w-full flex-col bg-white dark:bg-slate-900">
       {/* Top Bar */}
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 px-3 dark:border-slate-800">
+        {/* Hamburger Menu */}
         <div className="relative">
           <button
             type="button"
@@ -200,7 +233,7 @@ export default function Sidebar() {
       </div>
 
       {/* Main List */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hidden">
         {query.trim() ? (
           <>
             {isSearching ? (
