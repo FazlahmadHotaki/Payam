@@ -44,9 +44,17 @@ body {
   color: var(--text-primary);
 }
 
-/* app/globals.css */
-@keyframes telegram-gradient {
-  0%   { background-position: 0% 50%; }
-  50%  { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+/* ============================================================
+   Telegram-style chat pattern background
+   ============================================================ */
+
+.telegram-pattern {
+  background-color: #e6ebee;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%23748a9c' fill-opacity='0.16'%3E%3Ccircle cx='20' cy='20' r='2.5'/%3E%3Ccircle cx='70' cy='50' r='2'/%3E%3Ccircle cx='100' cy='20' r='1.8'/%3E%3Ccircle cx='40' cy='80' r='2.5'/%3E%3Ccircle cx='90' cy='90' r='2'/%3E%3Ccircle cx='10' cy='60' r='1.8'/%3E%3Ccircle cx='60' cy='110' r='1.5'/%3E%3C/svg%3E");
+  background-size: 120px 120px;
+}
+
+.dark .telegram-pattern {
+  background-color: #0e1621;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%234a6a8a' fill-opacity='0.22'%3E%3Ccircle cx='20' cy='20' r='2.5'/%3E%3Ccircle cx='70' cy='50' r='2'/%3E%3Ccircle cx='100' cy='20' r='1.8'/%3E%3Ccircle cx='40' cy='80' r='2.5'/%3E%3Ccircle cx='90' cy='90' r='2'/%3E%3Ccircle cx='10' cy='60' r='1.8'/%3E%3Ccircle cx='60' cy='110' r='1.5'/%3E%3C/g%3E%3C/svg%3E");
 }

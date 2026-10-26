@@ -3,7 +3,6 @@
 
 import { CheckCheck, Mic, Download } from "lucide-react";
 import type { Message } from "@/lib/chat";
-import Image from "next/image";
 
 type Props = {
   message: Message;
@@ -11,19 +10,24 @@ type Props = {
 };
 
 export default function MessageBubble({ message, mine }: Props) {
+  // Parse media prefixes
   const isImage = message.content.startsWith("[IMAGE]");
   const isVideo = message.content.startsWith("[VIDEO]");
   const isAudio = message.content.startsWith("[AUDIO]");
 
   let mediaUrl = "";
   if (isImage || isVideo || isAudio) {
-    mediaUrl = message.content.substring(7); // طول "[IMAGE]" = 7
+    // Remove the prefix (e.g., "[IMAGE]") to get the URL
+    mediaUrl = message.content.substring(7).trim();
   }
 
   const hasMedia = isImage || isVideo || isAudio;
 
+  // Download function that forces the browser to save the file
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!mediaUrl) return;
+
     try {
       const response = await fetch(mediaUrl);
       const blob = await response.blob();
@@ -32,16 +36,19 @@ export default function MessageBubble({ message, mine }: Props) {
       const a = document.createElement("a");
       a.href = url;
 
+      // Determine file extension
       const ext = isImage ? "jpg" : isVideo ? "mp4" : "webm";
       a.download = `Payam-${Date.now()}.${ext}`;
 
       document.body.appendChild(a);
       a.click();
 
+      // Cleanup
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (error) {
       console.error("Download failed:", error);
+      // Fallback: open in new tab
       window.open(mediaUrl, "_blank");
     }
   };
@@ -55,7 +62,7 @@ export default function MessageBubble({ message, mine }: Props) {
             : "rounded-bl-none bg-white text-slate-900 dark:bg-[#182533] dark:text-white"
         }`}
       >
-        {/* IMAGE RENDER — src از mediaUrl */}
+        {/* IMAGE RENDER — از mediaUrl واقعی استفاده می‌کند */}
         {isImage && (
           <div className="group relative overflow-hidden rounded-lg">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -65,10 +72,15 @@ export default function MessageBubble({ message, mine }: Props) {
               className="max-h-[400px] w-full rounded-lg object-cover"
               loading="lazy"
               onError={(e) => {
-                (e.currentTarget as HTMLImageElement).src =
+                const target = e.currentTarget as HTMLImageElement;
+                // اگر URL خراب بود، به placeholder برگرد
+                target.src =
                   "https://img.icons8.com/?size=100&id=VZN61f142psg&format=png&color=000000";
+                target.alt = "Image failed to load";
               }}
             />
+
+            {/* Image Hover Download Button */}
             <button
               onClick={handleDownload}
               className="absolute right-2 top-2 rounded-full bg-black/50 p-2 text-white opacity-0 backdrop-blur-sm transition hover:bg-black/70 group-hover:opacity-100"
@@ -114,6 +126,7 @@ export default function MessageBubble({ message, mine }: Props) {
               src={mediaUrl}
               className="h-10 w-40 max-w-[160px] sm:w-64 sm:max-w-xs"
             />
+
             <button
               onClick={handleDownload}
               className={`ml-1 rounded-full p-2 transition ${
@@ -128,7 +141,7 @@ export default function MessageBubble({ message, mine }: Props) {
           </div>
         )}
 
-        {/* TEXT RENDER */}
+        {/* TEXT RENDER (If no media) */}
         {!hasMedia && (
           <p className="whitespace-pre-wrap break-words px-2 pt-1 text-[15px] leading-snug">
             {message.content}

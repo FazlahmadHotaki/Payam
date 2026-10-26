@@ -31,78 +31,11 @@ export default function ChatWindow({
   onBack,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
-  const wallpaperRef = useRef<HTMLDivElement>(null);
-  const twallpaperRef = useRef<{ destroy?: () => void } | null>(null);
 
-  // ============================================================
-  // Twallpaper — بک‌گراند متحرک تلگرام (یک بار روی mount)
-  // ============================================================
-  useEffect(() => {
-    if (!wallpaperRef.current) return;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const mod = await import("twallpaper");
-        if (cancelled || !wallpaperRef.current) return;
-
-        // پکیج ممکن است default یا named export باشد
-        const TwallpaperCtor: any =
-          (mod as any).Twallpaper ?? (mod as any).default;
-
-        if (typeof TwallpaperCtor !== "function") {
-          throw new Error("Twallpaper constructor not found");
-        }
-
-        twallpaperRef.current = new TwallpaperCtor(wallpaperRef.current, {
-          fps: 60,
-          tails: 90,
-          animate: true,
-          scrollAnimate: true,
-          colors: ["#dbddbb", "#6ba587", "#d5d88d", "#88b884"],
-          pattern: {
-            // مسیر محلی بهتر است؛ اگر نبود، URL خارجی به‌عنوان fallback
-            image: "/patterns/telegram.svg",
-            background: "#000",
-            blur: 0,
-            size: "420px",
-            opacity: 0.5,
-            mask: false,
-          },
-        });
-      } catch (err) {
-        console.error("Twallpaper init failed:", err);
-
-        // ─── فال‌بک: گرادیان CSS ثابت ───
-        if (wallpaperRef.current) {
-          const el = wallpaperRef.current;
-          el.style.backgroundImage =
-            "linear-gradient(-45deg, #dbddbb, #6ba587, #d5d88d, #88b884, #6ba587, #dbddbb)";
-          el.style.backgroundSize = "400% 400%";
-          el.style.animation = "telegram-gradient 18s ease infinite";
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      try {
-        twallpaperRef.current?.destroy?.();
-      } catch {
-        /* ignore */
-      }
-      twallpaperRef.current = null;
-    };
-  }, []);
-
-  // اسکرول خودکار به پایین
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // ============================================================
-  // حالت خالی (بدون گفتگو)
-  // ============================================================
   if (!activeConversation) {
     return (
       <div className="flex h-full flex-col items-center justify-center bg-slate-50 text-slate-400 dark:bg-slate-900/50">
@@ -168,50 +101,34 @@ export default function ChatWindow({
         </div>
       </header>
 
-      {/* ─── MESSAGE AREA با Twallpaper ─── */}
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-        {/* لایه بک‌گراند متحرک — ثابت، غیرقابل کلیک */}
-        <div
-          ref={wallpaperRef}
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-0"
-        />
+      {/* ─── MESSAGE AREA با Pattern تلگرام ─── */}
+      <div className="telegram-pattern scrollbar-hidden flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 sm:p-6">
+        {loadingMessages && (
+          <p className="text-center text-sm text-slate-500 dark:text-slate-400">
+            Loading messages...
+          </p>
+        )}
 
-        {/* Overlay تیره در دارک‌مود (تا متن روی پس‌زمینه روشن خوانا باشد) */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-[1] hidden bg-black/40 dark:block"
-        />
-
-        {/* پیام‌ها روی بک‌گراند */}
-        <div className="scrollbar-hidden relative z-10 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 sm:p-6">
-          {loadingMessages && (
-            <p className="text-center text-sm text-slate-500">
-              Loading messages...
+        {!loadingMessages && messages.length === 0 && (
+          <div className="m-auto flex flex-col items-center rounded-xl bg-white/80 p-4 text-center shadow-sm backdrop-blur-sm dark:bg-slate-800/80">
+            <p className="font-medium text-slate-700 dark:text-slate-300">
+              No messages here yet...
             </p>
-          )}
+            <p className="text-sm text-slate-500">
+              Send a message to start the conversation!
+            </p>
+          </div>
+        )}
 
-          {!loadingMessages && messages.length === 0 && (
-            <div className="m-auto flex flex-col items-center rounded-xl bg-white/80 p-4 text-center shadow-sm backdrop-blur-sm dark:bg-slate-800/80">
-              <p className="font-medium text-slate-700 dark:text-slate-300">
-                No messages here yet...
-              </p>
-              <p className="text-sm text-slate-500">
-                Send a message to start the conversation!
-              </p>
-            </div>
-          )}
+        {messages.map((message) => (
+          <MessageBubble
+            key={message.id}
+            message={message}
+            mine={message.sender_id === userId}
+          />
+        ))}
 
-          {messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              mine={message.sender_id === userId}
-            />
-          ))}
-
-          <div ref={bottomRef} className="h-2" />
-        </div>
+        <div ref={bottomRef} className="h-2" />
       </div>
 
       {/* ─── INPUT ─── */}
