@@ -14,7 +14,7 @@ export default function Sidebar() {
     activeConversation,
     myProfile,
     loading,
-    selectConversation,
+    setActiveConversation,
     openConversation,
     signOut,
   } = useChat();
@@ -177,7 +177,7 @@ export default function Sidebar() {
                 return (
                   <button
                     key={c.id}
-                    onClick={() => selectConversation(c)}
+                    onClick={() => setActiveConversation(c)}
                     className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
                       active ? "bg-[#3390ec] text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"
                     }`}

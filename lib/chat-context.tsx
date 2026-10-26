@@ -1,24 +1,34 @@
-// lib/chat-context.tsx
+
 "use client";
 
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useState,
+  useCallback,
   type ReactNode,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import {
-  getErrorMessage,
-  type Conversation,
-  type Message,
-  type Profile,
-} from "@/lib/chat";
+import type { Conversation, Message, Profile } from "@/lib/chat";
 
-type Ctx = {
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+
+  return "An unexpected error occurred.";
+}
+
+type ChatContextType = {
   userId: string;
   myProfile: Profile | null;
   contacts: Profile[];
@@ -29,24 +39,17 @@ type Ctx = {
   loadingMessages: boolean;
   sending: boolean;
   error: string;
-  setError: (v: string) => void;
-  openConversation: (c: Profile) => Promise<void>;
-  selectConversation: (c: Conversation) => void;
-  clearActive: () => void;
+  setError: (error: string) => void;
+  setActiveConversation: (conversation: Conversation | null) => void;
+  loadContacts: (uid: string) => Promise<void>;
+  loadConversations: (uid: string) => Promise<void>;
+  openConversation: (contact: Profile) => Promise<void>;
   sendMessage: (content: string) => Promise<boolean>;
-  deleteConversation: (conversationId: string) => Promise<void>;
-  hideContact: (contact: Profile) => Promise<void>;
-  refresh: () => Promise<void>;
+  clearActive: () => void;
   signOut: () => Promise<void>;
 };
 
-const ChatCtx = createContext<Ctx | null>(null);
-
-function sortByRecent(list: Conversation[]): Conversation[] {
-  return [...list].sort((a, b) =>
-    (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")
-  );
-}
+const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -65,286 +68,452 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
-  const bumpConversation = useCallback(
-    (conversationId: string, when: string) => {
-      setConversations((cur) =>
-        sortByRecent(
-          cur.map((c) =>
-            c.id === conversationId ? { ...c, updatedAt: when } : c
-          )
-        )
-      );
-    },
-    []
-  );
+  const clearUserData = useCallback(() => {
+    setUserId("");
+    setMyProfile(null);
+    setContacts([]);
+    setConversations([]);
+    setMessages([]);
+    setActiveConversation(null);
+  }, []);
+
+  const clearActive = useCallback(() => {
+    setActiveConversation(null);
+    setMessages([]);
+    setError("");
+  }, []);
 
   const loadContacts = useCallback(async (uid: string) => {
-    const { data: hidden } = await supabase
+    const { data: hiddenRows, error: hiddenError } = await supabase
       .from("contact_hides")
       .select("hidden_user_id")
-      .eq("owner_id", uid);
+      .eq("user_id", uid);
 
-    const hiddenIds = new Set(
-      (hidden ?? []).map((h: { hidden_user_id: string }) => h.hidden_user_id)
+    if (hiddenError) {
+      throw new Error(`Loading hidden contacts failed: ${hiddenError.message}`);
+    }
+
+    const hiddenIds = (hiddenRows ?? []).map(
+      (row) => row.hidden_user_id as string
     );
 
-    // FETCHING USERNAME HERE
-    const { data, error } = await supabase
+    let query = supabase
       .from("profiles")
       .select("id, display_name, email, username")
       .neq("id", uid)
-      .order("display_name", { ascending: true });
+      .order("display_name");
 
-    if (error) throw new Error(`Loading contacts failed: ${error.message}`);
+    if (hiddenIds.length > 0) {
+      query = query.not("id", "in", `(${hiddenIds.join(",")})`);
+    }
 
-    setContacts(
-      ((data ?? []) as Profile[]).filter((p) => !hiddenIds.has(p.id))
-    );
+    const { data, error: contactsError } = await query;
+
+    if (contactsError) {
+      throw new Error(`Loading contacts failed: ${contactsError.message}`);
+    }
+
+    setContacts((data ?? []) as Profile[]);
   }, []);
 
   const loadConversations = useCallback(async (uid: string) => {
-    const { data: memberships, error: mErr } = await supabase
+    const { data: memberships, error: membershipError } = await supabase
       .from("conversation_members")
       .select("conversation_id")
-      .eq("user_id", uid)
-      .is("deleted_at", null);
+      .eq("user_id", uid);
 
-    if (mErr) throw new Error(`Loading memberships failed: ${mErr.message}`);
-
-    const ids = [
-      ...new Set((memberships ?? []).map((m) => m.conversation_id)),
-    ];
-    if (!ids.length) return setConversations([]);
-
-    const { data: members, error: memErr } = await supabase
-      .from("conversation_members")
-      .select("conversation_id, user_id")
-      .in("conversation_id", ids);
-
-    if (memErr)
-      throw new Error(`Loading participants failed: ${memErr.message}`);
-
-    const otherIds = [
-      ...new Set(
-        (members ?? [])
-          .filter((m) => m.user_id !== uid)
-          .map((m) => m.user_id)
-      ),
-    ];
-    if (!otherIds.length) return setConversations([]);
-
-    // FETCHING USERNAME HERE
-    const { data: profiles, error: pErr } = await supabase
-      .from("profiles")
-      .select("id, display_name, email, username")
-      .in("id", otherIds);
-
-    if (pErr) throw new Error(`Loading profiles failed: ${pErr.message}`);
-
-    const { data: convRows } = await supabase
-      .from("conversations")
-      .select("id, updated_at")
-      .in("id", ids);
-
-    const updatedMap = new Map<string, string>(
-      (convRows ?? []).map((c: { id: string; updated_at: string }) => [
-        c.id,
-        c.updated_at,
-      ])
-    );
-
-    const map = new Map(
-      ((profiles ?? []) as Profile[]).map((p) => [p.id, p])
-    );
-
-    const loaded: Conversation[] = [];
-    for (const id of ids) {
-      const other = (members ?? []).find(
-        (m) => m.conversation_id === id && m.user_id !== uid
+    if (membershipError) {
+      throw new Error(
+        `Loading conversation memberships failed: ${membershipError.message}`
       );
-      const otherUser = other ? map.get(other.user_id) : undefined;
-      if (otherUser) {
-        loaded.push({
-          id,
-          otherUser,
-          updatedAt: updatedMap.get(id) ?? "",
-        });
-      }
     }
 
-    setConversations(sortByRecent(loaded));
-  }, []);
+    const conversationIds = [
+      ...new Set(
+        (memberships ?? []).map((row) => row.conversation_id as string)
+      ),
+    ];
 
-  useEffect(() => {
-    if (isLogin) {
-      setLoading(false);
+    if (conversationIds.length === 0) {
+      setConversations([]);
+      setActiveConversation(null);
       return;
     }
 
+    const { data: memberRows, error: membersError } = await supabase
+      .from("conversation_members")
+      .select("conversation_id, user_id")
+      .in("conversation_id", conversationIds);
+
+    if (membersError) {
+      throw new Error(
+        `Loading conversation participants failed: ${membersError.message}`
+      );
+    }
+
+    const otherUserIds = [
+      ...new Set(
+        (memberRows ?? [])
+          .filter((row) => row.user_id !== uid)
+          .map((row) => row.user_id as string)
+      ),
+    ];
+
+    const { data: profileRows, error: profilesError } = otherUserIds.length
+      ? await supabase
+          .from("profiles")
+          .select("id, display_name, email, username")
+          .in("id", otherUserIds)
+      : { data: [], error: null };
+
+    if (profilesError) {
+      throw new Error(
+        `Loading conversation profiles failed: ${profilesError.message}`
+      );
+    }
+
+    const { data: conversationRows, error: conversationsError } =
+      await supabase
+        .from("conversations")
+        .select("*")
+        .in("id", conversationIds);
+
+    if (conversationsError) {
+      throw new Error(
+        `Loading conversations failed: ${conversationsError.message}`
+      );
+    }
+
+    const profileMap = new Map(
+      ((profileRows ?? []) as Profile[]).map((profile) => [
+        profile.id,
+        profile,
+      ])
+    );
+
+    const otherUserMap = new Map<string, string>();
+
+    for (const member of memberRows ?? []) {
+      if (member.user_id !== uid) {
+        otherUserMap.set(
+          member.conversation_id as string,
+          member.user_id as string
+        );
+      }
+    }
+
+    const loadedConversations = (conversationRows ?? []).map(
+      (conversation) => {
+        const conversationId = conversation.id as string;
+        const otherUserId = otherUserMap.get(conversationId);
+
+        return {
+          ...conversation,
+          otherUser: otherUserId
+            ? profileMap.get(otherUserId) ?? null
+            : null,
+        } as Conversation;
+      }
+    );
+
+    setConversations(loadedConversations);
+
+    setActiveConversation((current) => {
+      if (!current) return null;
+
+      return (
+        loadedConversations.find(
+          (conversation) => conversation.id === current.id
+        ) ?? null
+      );
+    });
+  }, []);
+
+  // Check authentication and load the current user's data.
+  useEffect(() => {
     let cancelled = false;
 
-    (async () => {
+    async function initialize() {
+      if (isLogin) {
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError("");
+
       try {
-        const { data, error: authErr } = await supabase.auth.getUser();
-        if (authErr)
-          throw new Error(`Authentication failed: ${authErr.message}`);
-        if (!data.user) {
+        const { data, error: authError } = await supabase.auth.getUser();
+
+        if (cancelled) return;
+
+        if (authError || !data.user) {
+          clearUserData();
           router.replace("/login");
           return;
         }
 
-        const uid = data.user.id;
+        const user = data.user;
+        const uid = user.id;
 
-        // FETCHING USERNAME HERE
-        const { data: profile, error: pErr } = await supabase
+        const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("id, display_name, email, username")
           .eq("id", uid)
           .maybeSingle();
 
-        if (pErr)
-          throw new Error(`Loading your profile failed: ${pErr.message}`);
         if (cancelled) return;
+
+        if (profileError) {
+          throw new Error(
+            `Loading your profile failed: ${profileError.message}`
+          );
+        }
 
         setUserId(uid);
         setMyProfile(
           (profile as Profile | null) ?? {
             id: uid,
-            display_name:
-              data.user.user_metadata?.display_name ?? "Payam User",
-            email: data.user.email ?? null,
+            display_name: user.user_metadata?.display_name ?? "Payam User",
+            email: user.email ?? null,
             username: "user",
           }
         );
 
         await loadContacts(uid);
         if (cancelled) return;
+
         await loadConversations(uid);
       } catch (err) {
-        if (!cancelled) setError(getErrorMessage(err));
+        if (cancelled) return;
+
+        const message = getErrorMessage(err);
+
+        if (
+          /auth session missing|not authenticated|invalid jwt|refresh token/i.test(
+            message
+          )
+        ) {
+          clearUserData();
+          router.replace("/login");
+          return;
+        }
+
+        setError(message);
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+    }
+
+    void initialize();
 
     return () => {
       cancelled = true;
     };
-  }, [isLogin, router, loadContacts, loadConversations]);
+  }, [
+    isLogin,
+    router,
+    clearUserData,
+    loadContacts,
+    loadConversations,
+  ]);
 
-  const openConversation = useCallback(
-    async (contact: Profile) => {
-      setError("");
-      try {
-        const { data, error } = await supabase.rpc(
-          "create_direct_conversation",
-          { other_user_id: contact.id }
-        );
-        if (error)
-          throw new Error(`Opening conversation failed: ${error.message}`);
-        if (!data) throw new Error("No conversation ID returned.");
-
-        const conversationId = String(data);
-
-        await supabase
-          .from("conversation_members")
-          .update({ deleted_at: null })
-          .eq("conversation_id", conversationId)
-          .eq("user_id", userId);
-
-        setMessages([]);
-        setActiveConversation({ id: conversationId, otherUser: contact });
-        await loadConversations(userId);
-      } catch (err) {
-        setError(getErrorMessage(err));
-      }
-    },
-    [userId, loadConversations]
-  );
-
+  // React to sign-out events.
   useEffect(() => {
-    if (!activeConversation) {
-      setMessages([]);
-      return;
-    }
-    let cancelled = false;
-    const cid = activeConversation.id;
+    if (isLogin) return;
 
-    (async () => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT" || !session) {
+        clearUserData();
+        router.replace("/login");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [isLogin, router, clearUserData]);
+
+  // Load messages for the selected conversation.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchMessages() {
+      if (!userId || !activeConversation) {
+        setMessages([]);
+        setLoadingMessages(false);
+        return;
+      }
+
       setLoadingMessages(true);
-      setError("");
+
       try {
-        const { data, error } = await supabase
+        const { data, error: messagesError } = await supabase
           .from("messages")
-          .select("id, conversation_id, sender_id, content, created_at")
-          .eq("conversation_id", cid)
-          .order("created_at", { ascending: true })
-          .limit(200);
-        if (error)
-          throw new Error(`Loading messages failed: ${error.message}`);
-        if (!cancelled) setMessages((data ?? []) as Message[]);
+          .select("*")
+          .eq("conversation_id", activeConversation.id)
+          .order("created_at", { ascending: true });
+
+        if (messagesError) {
+          throw new Error(`Loading messages failed: ${messagesError.message}`);
+        }
+
+        if (!cancelled) {
+          setMessages((data ?? []) as Message[]);
+        }
       } catch (err) {
         if (!cancelled) setError(getErrorMessage(err));
       } finally {
         if (!cancelled) setLoadingMessages(false);
       }
-    })();
+    }
 
-    const channel = supabase
-      .channel(`messages-${cid}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `conversation_id=eq.${cid}`,
-        },
-        (payload) => {
-          const inc = payload.new as Message;
-          setMessages((cur) =>
-            cur.some((m) => m.id === inc.id) ? cur : [...cur, inc]
-          );
-          bumpConversation(cid, inc.created_at);
-        }
-      )
-      .subscribe((status) => {
-        if (status === "CHANNEL_ERROR") {
-          setError(
-            "Live updates could not connect. Check that messages is enabled in Supabase Realtime."
-          );
-        }
-      });
+    void fetchMessages();
 
     return () => {
       cancelled = true;
-      void supabase.removeChannel(channel);
     };
-  }, [activeConversation, bumpConversation]);
+  }, [userId, activeConversation]);
 
+  // Open an existing conversation, or create one with the selected contact.
+  const openConversation = useCallback(
+    async (contact: Profile): Promise<void> => {
+      if (!userId) {
+        setError("Please log in to start a conversation.");
+        router.replace("/login");
+        return;
+      }
+
+      if (contact.id === userId) return;
+
+      setError("");
+
+      try {
+        const { data: myMemberships, error: myMembershipError } =
+          await supabase
+            .from("conversation_members")
+            .select("conversation_id")
+            .eq("user_id", userId);
+
+        if (myMembershipError) throw myMembershipError;
+
+        const myIds = (myMemberships ?? []).map(
+          (row) => row.conversation_id as string
+        );
+
+        if (myIds.length > 0) {
+          const { data: shared, error: sharedError } = await supabase
+            .from("conversation_members")
+            .select("conversation_id")
+            .eq("user_id", contact.id)
+            .in("conversation_id", myIds)
+            .limit(1)
+            .maybeSingle();
+
+          if (sharedError) throw sharedError;
+
+          if (shared) {
+            const { data: existing, error: existingError } = await supabase
+              .from("conversations")
+              .select("*")
+              .eq("id", shared.conversation_id)
+              .maybeSingle();
+
+            if (existingError) throw existingError;
+
+            if (existing) {
+              const selected = {
+                ...existing,
+                otherUser: contact,
+              } as Conversation;
+
+              setActiveConversation(selected);
+              setMessages([]);
+              return;
+            }
+          }
+        }
+
+        // This assumes the conversations table supplies defaults for its
+        // required columns, including its ID.
+        const { data: created, error: createError } = await supabase
+          .from("conversations")
+          .insert({})
+          .select("*")
+          .single();
+
+        if (createError) throw createError;
+
+        const { error: membersError } = await supabase
+          .from("conversation_members")
+          .insert([
+            {
+              conversation_id: created.id,
+              user_id: userId,
+            },
+            {
+              conversation_id: created.id,
+              user_id: contact.id,
+            },
+          ]);
+
+        if (membersError) throw membersError;
+
+        const selected = {
+          ...created,
+          otherUser: contact,
+        } as Conversation;
+
+        setMessages([]);
+        setActiveConversation(selected);
+        await loadConversations(userId);
+        setActiveConversation(selected);
+      } catch (err) {
+        setError(getErrorMessage(err));
+      }
+    },
+    [userId, router, loadConversations]
+  );
+
+  // Send a message and return true only when insertion succeeds.
   const sendMessage = useCallback(
     async (content: string): Promise<boolean> => {
-      const trimmed = content.trim();
-      if (!trimmed || !activeConversation || !userId || sending) return false;
+      const text = content.trim();
+
+      if (!text || !userId || !activeConversation || sending) {
+        return false;
+      }
+
       setSending(true);
       setError("");
+
       try {
-        const { data, error } = await supabase
+        const { data, error: insertError } = await supabase
           .from("messages")
           .insert({
             conversation_id: activeConversation.id,
             sender_id: userId,
-            content: trimmed,
+            content: text,
           })
-          .select("id, conversation_id, sender_id, content, created_at")
+          .select("*")
           .single();
-        if (error) throw new Error(`Sending message failed: ${error.message}`);
-        setMessages((cur) =>
-          cur.some((m) => m.id === data.id) ? cur : [...cur, data as Message]
-        );
-        bumpConversation(activeConversation.id, data.created_at);
+
+        if (insertError) throw insertError;
+
+        const newMessage = data as Message;
+
+        setMessages((current) => {
+          if (current.some((message) => message.id === newMessage.id)) {
+            return current;
+          }
+
+          return [...current, newMessage].sort(
+            (a, b) =>
+              new Date(a.created_at).getTime() -
+              new Date(b.created_at).getTime()
+          );
+        });
+
         return true;
       } catch (err) {
         setError(getErrorMessage(err));
@@ -353,90 +522,78 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setSending(false);
       }
     },
-    [activeConversation, userId, sending, bumpConversation]
+    [userId, activeConversation, sending]
   );
 
-  const deleteConversation = useCallback(
-    async (conversationId: string) => {
-      setError("");
-      try {
-        const { error } = await supabase
-          .from("conversation_members")
-          .update({ deleted_at: new Date().toISOString() })
-          .eq("conversation_id", conversationId)
-          .eq("user_id", userId);
+  // Subscribe to real-time updates in the active conversation.
+  useEffect(() => {
+    if (!userId || !activeConversation) return;
 
-        if (error) throw new Error(`Deleting chat failed: ${error.message}`);
+    const conversationId = activeConversation.id;
 
-        setActiveConversation((cur) =>
-          cur?.id === conversationId ? null : cur
-        );
-        await loadConversations(userId);
-      } catch (err) {
-        setError(getErrorMessage(err));
-      }
-    },
-    [userId, loadConversations]
-  );
+    const channel = supabase
+      .channel(`messages-${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          if (payload.eventType === "DELETE") {
+            const deletedId = (payload.old as { id?: string }).id;
 
-  const hideContact = useCallback(
-    async (contact: Profile) => {
-      setError("");
-      try {
-        const { error: hideErr } = await supabase
-          .from("contact_hides")
-          .upsert(
-            { owner_id: userId, hidden_user_id: contact.id },
-            { onConflict: "owner_id,hidden_user_id" }
-          );
+            if (deletedId) {
+              setMessages((current) =>
+                current.filter((message) => message.id !== deletedId)
+              );
+            }
 
-        if (hideErr)
-          throw new Error(`Hiding contact failed: ${hideErr.message}`);
+            return;
+          }
 
-        const convIds = conversations
-          .filter((c) => c.otherUser.id === contact.id)
-          .map((c) => c.id);
+          const newMessage = payload.new as Message;
 
-        if (convIds.length) {
-          await supabase
-            .from("conversation_members")
-            .update({ deleted_at: new Date().toISOString() })
-            .in("conversation_id", convIds)
-            .eq("user_id", userId);
+          setMessages((current) => {
+            if (current.some((message) => message.id === newMessage.id)) {
+              return current.map((message) =>
+                message.id === newMessage.id ? newMessage : message
+              );
+            }
+
+            return [...current, newMessage].sort(
+              (a, b) =>
+                new Date(a.created_at).getTime() -
+                new Date(b.created_at).getTime()
+            );
+          });
         }
+      )
+      .subscribe();
 
-        setContacts((cur) => cur.filter((c) => c.id !== contact.id));
-        setConversations((cur) =>
-          cur.filter((c) => c.otherUser.id !== contact.id)
-        );
-        setActiveConversation((cur) =>
-          cur?.otherUser.id === contact.id ? null : cur
-        );
-      } catch (err) {
-        setError(getErrorMessage(err));
-      }
-    },
-    [userId, conversations]
-  );
-
-  const refresh = useCallback(async () => {
-    setError("");
-    try {
-      await loadContacts(userId);
-      await loadConversations(userId);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    }
-  }, [userId, loadContacts, loadConversations]);
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [userId, activeConversation]);
 
   const signOut = useCallback(async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) return setError(`Sign out failed: ${error.message}`);
+    setError("");
+
+    const { error: signOutError } = await supabase.auth.signOut();
+
+    if (signOutError) {
+      setError(`Signing out failed: ${signOutError.message}`);
+      return;
+    }
+
+    clearUserData();
     router.replace("/login");
     router.refresh();
-  }, [router]);
+  }, [router, clearUserData]);
 
-  const value: Ctx = {
+  const value: ChatContextType = {
     userId,
     myProfile,
     contacts,
@@ -448,21 +605,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     sending,
     error,
     setError,
+    setActiveConversation,
+    loadContacts,
+    loadConversations,
     openConversation,
-    selectConversation: (c) => setActiveConversation(c),
-    clearActive: () => setActiveConversation(null),
     sendMessage,
-    deleteConversation,
-    hideContact,
-    refresh,
+    clearActive,
     signOut,
   };
 
-  return <ChatCtx.Provider value={value}>{children}</ChatCtx.Provider>;
+  return (
+    <ChatContext.Provider value={value}>
+      {children}
+    </ChatContext.Provider>
+  );
 }
 
 export function useChat() {
-  const ctx = useContext(ChatCtx);
-  if (!ctx) throw new Error("useChat must be used inside <ChatProvider>");
-  return ctx;
+  const context = useContext(ChatContext);
+
+  if (!context) {
+    throw new Error("useChat must be used inside a ChatProvider");
+  }
+
+  return context;
 }

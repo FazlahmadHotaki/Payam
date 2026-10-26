@@ -1,196 +1,281 @@
-// app/login/page.tsx
+
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { LoaderCircle, MessageCircle } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
 
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [mode, setMode] = useState<"login" | "signup">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkSession() {
+      try {
+        const { data, error: sessionError } =
+          await supabase.auth.getSession();
+
+        if (cancelled) return;
+
+        if (!sessionError && data.session) {
+          router.replace("/");
+          router.refresh();
+        }
+      } finally {
+        if (!cancelled) {
+          setCheckingSession(false);
+        }
+      }
+    }
+
+    void checkSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError("");
     setMessage("");
     setLoading(true);
 
     try {
-      if (isSignUp) {
-        const { data, error } = await supabase.auth.signUp({
-          email,
+      if (mode === "signup") {
+        if (!name.trim()) {
+          setError("Please enter your name.");
+          return;
+        }
+
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
           password,
           options: {
-            data: { display_name: name },
+            data: { display_name: name.trim() },
           },
         });
 
-        if (error) throw error;
+        if (signUpError) throw signUpError;
 
         if (!data.session) {
           setMessage(
-            "Account created! Check your email to confirm your account, then sign in."
+            "Your account was created. Check your email to confirm your account, then log in."
           );
-        } else {
-          // Fixed: Redirect to Home, not /realtime
-          router.push("/");
-          router.refresh();
+          setMode("login");
+          return;
         }
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
+
+        router.replace("/");
+        router.refresh();
+        return;
+      }
+
+      const { error: signInError } =
+        await supabase.auth.signInWithPassword({
+          email: email.trim(),
           password,
         });
 
-        if (error) throw error;
+      if (signInError) throw signInError;
 
-        // Fixed: Redirect to Home, not /realtime
-        router.push("/");
-        router.refresh();
-      }
+      router.replace("/");
+      router.refresh();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Something went wrong."
+        err instanceof Error
+          ? err.message
+          : "Something went wrong. Please try again."
       );
     } finally {
       setLoading(false);
     }
   }
 
+  if (checkingSession) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4 dark:bg-slate-950">
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Checking your session...
+        </p>
+      </main>
+    );
+  }
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-10 dark:bg-slate-950">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-md space-y-6 rounded-2xl border border-slate-200 bg-white p-8 shadow-xl dark:border-slate-800 dark:bg-slate-900"
-      >
-        <div className="flex flex-col items-center text-center">
-          {/* Payam Logo */}
-          <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg">
-            <MessageCircle size={32} />
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-xl dark:border-slate-800 dark:bg-slate-900">
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-2xl font-bold text-white">
+            P
           </div>
-          
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
             Payam
           </h1>
+
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-            {isSignUp
-              ? "Create your account to start messaging."
-              : "Welcome back! Sign in to continue."}
+            {mode === "login"
+              ? "Sign in to continue to your chats."
+              : "Create an account to start messaging."}
           </p>
         </div>
 
-        {isSignUp && (
-          <div>
-            <label
-              htmlFor="name"
-              className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300"
-            >
-              Display name
-            </label>
-            <input
-              id="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              maxLength={60}
-              autoComplete="name"
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:ring-blue-900/50"
-              placeholder="Your name"
-            />
-          </div>
-        )}
-
-        <div>
-          <label
-            htmlFor="email"
-            className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300"
-          >
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:ring-blue-900/50"
-            placeholder="you@example.com"
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor="password"
-            className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300"
-          >
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={6}
-            autoComplete={isSignUp ? "new-password" : "current-password"}
-            className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:ring-blue-900/50"
-            placeholder="At least 6 characters"
-          />
-        </div>
-
-        {error && (
-          <p role="alert" className="text-sm font-medium text-red-600 dark:text-red-400">
-            {error}
-          </p>
-        )}
-
-        {message && (
-          <p role="status" className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-            {message}
-          </p>
-        )}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
-        >
-          {loading ? (
-            <>
-              <LoaderCircle className="mr-2 animate-spin" size={18} />
-              Please wait...
-            </>
-          ) : isSignUp ? (
-            "Create account"
-          ) : (
-            "Sign in"
-          )}
-        </button>
-
-        <p className="text-center text-sm text-slate-600 dark:text-slate-400">
-          {isSignUp ? "Already have an account?" : "New to Payam?"}{" "}
+        <div className="mb-6 grid grid-cols-2 rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
           <button
             type="button"
             onClick={() => {
-              setIsSignUp(!isSignUp);
+              setMode("login");
               setError("");
               setMessage("");
             }}
-            className="font-semibold text-blue-600 hover:underline"
+            className={`rounded-md px-4 py-2 text-sm font-medium transition ${
+              mode === "login"
+                ? "bg-white text-slate-900 shadow dark:bg-slate-700 dark:text-white"
+                : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+            }`}
           >
-            {isSignUp ? "Sign in" : "Create account"}
+            Log in
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMode("signup");
+              setError("");
+              setMessage("");
+            }}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition ${
+              mode === "signup"
+                ? "bg-white text-slate-900 shadow dark:bg-slate-700 dark:text-white"
+                : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+            }`}
+          >
+            Sign up
+          </button>
+        </div>
+
+        {error && (
+          <div
+            role="alert"
+            className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+          >
+            {error}
+          </div>
+        )}
+
+        {message && (
+          <div
+            role="status"
+            className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300"
+          >
+            {message}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {mode === "signup" && (
+            <div>
+              <label
+                htmlFor="name"
+                className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200"
+              >
+                Full name
+              </label>
+              <input
+                id="name"
+                type="text"
+                autoComplete="name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Your name"
+                required
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </div>
+          )}
+
+          <div>
+            <label
+              htmlFor="email"
+              className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200"
+            >
+              Email address
+            </label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+              required
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="password"
+              className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200"
+            >
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              autoComplete={
+                mode === "login" ? "current-password" : "new-password"
+              }
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Enter your password"
+              minLength={6}
+              required
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading
+              ? "Please wait..."
+              : mode === "login"
+                ? "Log in"
+                : "Create account"}
+          </button>
+        </form>
+
+        <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
+          {mode === "login"
+            ? "New to Payam?"
+            : "Already have an account?"}{" "}
+          <button
+            type="button"
+            onClick={() => {
+              setMode(mode === "login" ? "signup" : "login");
+              setError("");
+              setMessage("");
+            }}
+            className="font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+          >
+            {mode === "login" ? "Create an account" : "Log in"}
           </button>
         </p>
-      </form>
+      </div>
     </main>
   );
 }

@@ -22,8 +22,9 @@ export default function RootLayout({
         {/* Tailwind CSS Browser CDN */}
 <Script
   src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"
-  strategy="beforeInteractive"
-/>      </head>
+  strategy="beforeInteractive"/>  
+  <link rel="icon" href="/logo.png"></link>    
+</head>
 
       <body className="h-full overflow-hidden bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
         <ThemeProvider>
