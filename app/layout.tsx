@@ -1,4 +1,4 @@
-
+import Script from "next/script";
 import type { Metadata } from "next";
 import "./globals.css";
 
@@ -20,8 +20,10 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         {/* Tailwind CSS Browser CDN */}
-        <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-      </head>
+<Script
+  src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"
+  strategy="beforeInteractive"
+/>      </head>
 
       <body className="h-full overflow-hidden bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
         <ThemeProvider>

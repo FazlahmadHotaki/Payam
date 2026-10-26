@@ -1,15 +1,23 @@
-// components/layout/Header.tsx
+
 "use client";
 
 import { useRef, useState, type ChangeEvent } from "react";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Menu, Plus, Search, X } from "lucide-react";
-import { displayName, useChat } from "@/lib/chat-context";
-import type { Profile } from "@/lib/chat";
+import { useChat } from "@/lib/chat-context";
+import { displayName, type Profile } from "@/lib/chat";
 
-type Story = { id: string; name: string; image?: string; profile?: Profile };
-type Props = { onMenuClick?: () => void };
+type Story = {
+  id: string;
+  name: string;
+  image?: string;
+  profile?: Profile;
+};
+
+type Props = {
+  onMenuClick?: () => void;
+};
 
 export default function Header({ onMenuClick }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -22,41 +30,53 @@ export default function Header({ onMenuClick }: Props) {
 
   const showStories = pathname === "/";
 
-  const stories: Story[] = contacts.map((c) => ({
-    id: c.id,
-    name: displayName(c),
-    profile: c,
+  const stories: Story[] = contacts.map((contact) => ({
+    id: contact.id,
+    name: displayName(contact),
+    profile: contact,
   }));
 
-  const filtered = stories.filter((s) =>
-    s.name.toLowerCase().includes(query.trim().toLowerCase())
+  const filtered = stories.filter((story) =>
+    story.name.toLowerCase().includes(query.trim().toLowerCase())
   );
 
   function handleAddStory(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+
     if (!file) return;
+
     if (!file.type.startsWith("image/")) {
       alert("Please select an image file.");
       e.target.value = "";
       return;
     }
+
     const url = URL.createObjectURL(file);
-    setMyStory((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
+
+    setMyStory((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
       return url;
     });
+
     e.target.value = "";
   }
 
   function handleMyStory() {
-    if (myStory) setActiveStory({ id: "my", name: "Your story", image: myStory });
-    else fileInputRef.current?.click();
+    if (myStory) {
+      setActiveStory({
+        id: "my",
+        name: "Your story",
+        image: myStory,
+      });
+    } else {
+      fileInputRef.current?.click();
+    }
   }
 
   return (
     <>
       <header className="w-full min-w-0 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        {/* ===== Top bar ===== */}
+        {/* Top bar */}
         <div className="mx-auto flex h-[54px] w-full max-w-7xl items-center gap-2 px-3 md:px-4">
           <button
             type="button"
@@ -67,20 +87,22 @@ export default function Header({ onMenuClick }: Props) {
             <Menu size={20} />
           </button>
 
-          {/* Telegram-style search bar (fake — expands on focus via input) */}
+          {/* Search */}
           <div className="relative flex-1">
             <Search
               size={16}
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
             />
+
             <input
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search"
               aria-label="Search stories and contacts"
-              className="h-9 w-full rounded-full border-0 bg-slate-100 pl-9 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-500 focus:bg-white focus:ring-2 focus:ring-blue-100 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus:bg-slate-700 dark:focus:ring-blue-950"
+              className="h-9 w-full rounded-full border-0 bg-slate-100 pl-9 pr-9 text-sm text-slate-800 outline-none transition placeholder:text-slate-500 focus:bg-white focus:ring-2 focus:ring-blue-100 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus:bg-slate-700 dark:focus:ring-blue-950"
             />
+
             {query && (
               <button
                 type="button"
@@ -98,7 +120,7 @@ export default function Header({ onMenuClick }: Props) {
           </h1>
         </div>
 
-        {/* ===== Stories strip ===== */}
+        {/* Stories strip */}
         {showStories && (
           <div className="mx-auto w-full max-w-7xl px-3 pb-2 md:px-4">
             <div className="story-scroll flex w-full min-w-0 items-start gap-2.5 overflow-x-auto overscroll-x-contain md:gap-3">
@@ -111,24 +133,41 @@ export default function Header({ onMenuClick }: Props) {
               >
                 <span className="relative flex size-9 items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-blue-500 bg-blue-50 transition group-hover:bg-blue-100 dark:bg-slate-800 dark:group-hover:bg-slate-700">
                   {myStory ? (
-                    <Image src={myStory} alt="Your story" fill unoptimized sizes="36px" className="object-cover" />
+                    <Image
+                      src={myStory}
+                      alt="Your story"
+                      fill
+                      unoptimized
+                      sizes="36px"
+                      className="object-cover"
+                    />
                   ) : (
-                    <Plus size={16} className="text-blue-600 dark:text-blue-400" />
+                    <Plus
+                      size={16}
+                      className="text-blue-600 dark:text-blue-400"
+                    />
                   )}
+
                   <span className="absolute -bottom-0.5 -right-0.5 flex size-3 items-center justify-center rounded-full border-2 border-white bg-blue-600 text-white dark:border-slate-900">
                     <Plus size={7} strokeWidth={3} />
                   </span>
                 </span>
+
                 <span className="w-12 truncate text-center text-[10px] leading-tight text-slate-600 dark:text-slate-300">
                   You
                 </span>
               </button>
 
+              {/* Contact stories */}
               {filtered.map((story) => (
                 <button
                   key={story.id}
                   type="button"
-                  onClick={() => story.profile && void openConversation(story.profile)}
+                  onClick={() => {
+                    if (story.profile) {
+                      void openConversation(story.profile);
+                    }
+                  }}
                   className="group flex w-12 shrink-0 flex-col items-center gap-0.5"
                   aria-label={`Chat with ${story.name}`}
                 >
@@ -139,6 +178,7 @@ export default function Header({ onMenuClick }: Props) {
                       </span>
                     </span>
                   </span>
+
                   <span className="w-12 truncate text-center text-[10px] leading-tight text-slate-600 dark:text-slate-300">
                     {story.name}
                   </span>
@@ -154,11 +194,24 @@ export default function Header({ onMenuClick }: Props) {
           </div>
         )}
 
-        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAddStory} />
+        {/* Hidden image picker */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleAddStory}
+        />
 
         <style jsx>{`
-          .story-scroll { scrollbar-width: none; -ms-overflow-style: none; }
-          .story-scroll::-webkit-scrollbar { display: none; }
+          .story-scroll {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+          }
+
+          .story-scroll::-webkit-scrollbar {
+            display: none;
+          }
         `}</style>
       </header>
 
@@ -185,8 +238,12 @@ export default function Header({ onMenuClick }: Props) {
                 className="object-contain"
               />
             )}
+
             <div className="absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent p-3 text-white sm:p-4">
-              <span className="truncate pr-3 font-semibold">{activeStory.name}</span>
+              <span className="truncate pr-3 font-semibold">
+                {activeStory.name}
+              </span>
+
               <button
                 type="button"
                 aria-label="Close story"

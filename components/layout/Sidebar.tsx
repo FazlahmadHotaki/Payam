@@ -7,8 +7,7 @@ import { Menu, Search, X, Users, Settings, LogOut, UserCircle, LoaderCircle } fr
 import { displayName, relativeTime } from "@/lib/chat";
 import { useChat } from "@/lib/chat-context";
 import { supabase } from "@/lib/supabase/client";
-import type { Conversation, Profile } from "@/lib/chat";
-
+import type { Profile } from "@/lib/chat";
 export default function Sidebar() {
   const {
     conversations,
@@ -141,8 +140,9 @@ export default function Sidebar() {
                 <LoaderCircle className="animate-spin" size={20} />
               </div>
             ) : searchResults.length === 0 ? (
-              <p className="p-4 text-center text-sm text-slate-500">No users found for "{query}".</p>
-            ) : (
+<p className="p-4 text-center text-sm text-slate-500">
+  No users found for &quot;{query}&quot;.
+</p>            ) : (
               searchResults.map((profile) => (
                 <button
                   key={profile.id}

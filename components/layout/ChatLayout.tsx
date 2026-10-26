@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { LoaderCircle, MessageCircle } from "lucide-react";
 import { useChat } from "@/lib/chat-context";
-import ChatWindow from "@/components/chat/ChatWindow";
+import ChatWindow from "@/components/Chat/ChatWindow";
 
 export default function ChatLayout() {
   const {

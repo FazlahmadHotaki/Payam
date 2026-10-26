@@ -80,9 +80,11 @@ export default function MessageInput({ value, onChange, onSubmit, sending }: Pro
         if (textareaRef.current?.form) textareaRef.current.form.requestSubmit();
       }, 50);
 
-    } catch (err: any) {
-      alert("Upload failed: " + err.message);
-    } finally {
+    } catch (err: unknown) {
+  const message =
+    err instanceof Error ? err.message : "An unknown error occurred.";
+  alert("Upload failed: " + message);
+} finally {
       setIsUploading(false);
     }
   };
@@ -100,7 +102,7 @@ export default function MessageInput({ value, onChange, onSubmit, sending }: Pro
 
       mediaRecorder.start();
       setIsRecording(true);
-    } catch (err) {
+    } catch {
       alert("Microphone access denied.");
     }
   };
