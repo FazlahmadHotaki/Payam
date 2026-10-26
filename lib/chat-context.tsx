@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -389,6 +388,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setError("");
 
       try {
+        // 1) آیا از قبل یک گفتگوی مشترک با این مخاطب داریم؟
         const { data: myMemberships, error: myMembershipError } =
           await supabase
             .from("conversation_members")
@@ -434,30 +434,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        // This assumes the conversations table supplies defaults for its
-        // required columns, including its ID.
-        const { data: created, error: createError } = await supabase
+        // 2) گفتگوی جدید را به‌صورت اتمیک از طریق RPC بساز
+        //    (تابع create_conversation_with در Supabase تعریف شده است)
+        const { data: newConversationId, error: rpcError } = await supabase
+          .rpc("create_conversation_with", { contact_id: contact.id });
+
+        if (rpcError) throw rpcError;
+
+        if (!newConversationId) {
+          throw new Error("Creating conversation failed: no id returned.");
+        }
+
+        // 3) رکورد گفتگو را بخوان (حالا کاربر عضو است، پس SELECT جواب می‌دهد)
+        const { data: created, error: fetchError } = await supabase
           .from("conversations")
-          .insert({})
           .select("*")
+          .eq("id", newConversationId)
           .single();
 
-        if (createError) throw createError;
-
-        const { error: membersError } = await supabase
-          .from("conversation_members")
-          .insert([
-            {
-              conversation_id: created.id,
-              user_id: userId,
-            },
-            {
-              conversation_id: created.id,
-              user_id: contact.id,
-            },
-          ]);
-
-        if (membersError) throw membersError;
+        if (fetchError) throw fetchError;
 
         const selected = {
           ...created,
