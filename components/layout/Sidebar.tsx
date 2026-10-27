@@ -17,6 +17,7 @@ import { displayName, relativeTime } from "@/lib/chat";
 import { useChat } from "@/lib/chat-context";
 import { supabase } from "@/lib/supabase/client";
 import type { Profile, Conversation } from "@/lib/chat";
+import StoriesBar from "@/components/stories/StoriesBar";
 
 export default function Sidebar() {
   const {
@@ -243,6 +244,9 @@ export default function Sidebar() {
           </div>
         )}
       </div>
+
+      {/* ─── Stories Bar (جدید) ─── */}
+      <StoriesBar />
 
       {/* Main List */}
       <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto">

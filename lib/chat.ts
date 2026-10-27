@@ -5,7 +5,7 @@ export type Profile = {
   display_name: string | null;
   email: string | null;
   username?: string | null;
-  avatar_url?: string | null;   // ← جدید
+  avatar_url?: string | null;
 };
 
 export type Message = {
@@ -14,8 +14,6 @@ export type Message = {
   sender_id: string;
   content: string;
   created_at: string;
-
-  // soft delete (برای «Delete for everyone»)
   deleted_at?: string | null;
   deleted_by?: string | null;
 };
@@ -23,19 +21,36 @@ export type Message = {
 export type Conversation = {
   id: string;
   otherUser: Profile;
-
-  // برای مرتب‌سازی و پیش‌نمایش پیام آخر
   lastMessageAt?: string | null;
   lastMessage?: string | null;
   lastMessageSenderId?: string | null;
-
-  // legacy
   updatedAt?: string;
 };
 
-/**
- * Turn any thrown value into a readable string.
- */
+// ============================================================
+// Stories
+// ============================================================
+export type Story = {
+  id: string;
+  user_id: string;
+  media_url: string;
+  media_type: "image" | "video";
+  caption: string | null;
+  created_at: string;
+  expires_at: string;
+  user?: Profile | null;
+  viewed?: boolean;
+};
+
+export type StoryGroup = {
+  user: Profile;
+  stories: Story[];
+  allViewed: boolean;
+};
+
+// ============================================================
+// Helpers
+// ============================================================
 export function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "object" && error !== null && "message" in error) {
@@ -44,9 +59,6 @@ export function getErrorMessage(error: unknown): string {
   return String(error || "An unknown error occurred.");
 }
 
-/**
- * Prefer display_name, fall back to username, then email.
- */
 export function displayName(profile: Profile | null | undefined): string {
   if (!profile) return "Payam User";
   return (
@@ -57,9 +69,6 @@ export function displayName(profile: Profile | null | undefined): string {
   );
 }
 
-/**
- * Human-friendly time distance from now.
- */
 export function relativeTime(iso?: string | null): string {
   if (!iso) return "";
   const then = new Date(iso).getTime();

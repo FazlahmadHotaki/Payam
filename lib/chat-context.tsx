@@ -11,7 +11,13 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import type { Conversation, Message, Profile } from "@/lib/chat";
+import type {
+  Conversation,
+  Message,
+  Profile,
+  Story,
+  StoryGroup,
+} from "@/lib/chat";
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -36,6 +42,7 @@ function sortByRecency(list: Conversation[]): Conversation[] {
 
 type UpdateUsernameResult = { ok: boolean; error?: string };
 type UpdateAvatarResult = { ok: boolean; error?: string; url?: string };
+type CreateStoryResult = { ok: boolean; error?: string };
 
 type ChatContextType = {
   userId: string;
@@ -45,6 +52,8 @@ type ChatContextType = {
   activeConversation: Conversation | null;
   messages: Message[];
   unreadCounts: Record<string, number>;
+  stories: StoryGroup[];
+  loadingStories: boolean;
   loading: boolean;
   loadingMessages: boolean;
   sending: boolean;
@@ -53,6 +62,7 @@ type ChatContextType = {
   setActiveConversation: (conversation: Conversation | null) => void;
   loadContacts: (uid: string) => Promise<void>;
   loadConversations: (uid: string) => Promise<void>;
+  loadStories: () => Promise<void>;
   openConversation: (contact: Profile) => Promise<void>;
   sendMessage: (content: string) => Promise<boolean>;
   clearActive: () => void;
@@ -62,6 +72,9 @@ type ChatContextType = {
   deleteMessageForMe: (messageId: string) => Promise<boolean>;
   deleteMessageForEveryone: (messageId: string) => Promise<boolean>;
   deleteConversation: (conversationId: string) => Promise<boolean>;
+  createStory: (file: File, caption?: string) => Promise<CreateStoryResult>;
+  viewStory: (storyId: string) => Promise<void>;
+  deleteStory: (storyId: string) => Promise<boolean>;
   signOut: () => Promise<void>;
 };
 
@@ -80,6 +93,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [stories, setStories] = useState<StoryGroup[]>([]);
+  const [loadingStories, setLoadingStories] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
@@ -103,6 +118,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages([]);
     setActiveConversation(null);
     setUnreadCounts({});
+    setStories([]);
   }, []);
 
   const clearActive = useCallback(() => {
@@ -125,7 +141,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         console.error("computeUnreadCounts failed:", {
           message: mErr.message,
           code: mErr.code,
-          details: mErr.details,
         });
         return;
       }
@@ -160,11 +175,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }
 
         if (result.error) {
-          console.error("count unread failed:", {
-            message: result.error.message,
-            code: result.error.code,
-            convId,
-          });
+          console.error("count unread failed:", result.error.message);
           continue;
         }
 
@@ -194,7 +205,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ============================================================
-  // load conversations — با فیلتر گفتگوهای مخفی‌شده
+  // load conversations
   // ============================================================
   const loadConversations = useCallback(
     async (uid: string) => {
@@ -209,7 +220,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         );
       }
 
-      // ← جدید: گفتگوهای مخفی‌شده را بگیر
       const { data: hiddenRows } = await supabase
         .from("conversation_hides")
         .select("conversation_id")
@@ -276,7 +286,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         );
       }
 
-      // آخرین پیام‌های غیرحذف‌شده
       const { data: latestMessages } = await supabase
         .from("messages")
         .select("id, conversation_id, content, created_at, sender_id")
@@ -284,7 +293,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .is("deleted_at", null)
         .order("created_at", { ascending: false });
 
-      // حذف‌های شخصی من
       const { data: myDeletions } = await supabase
         .from("message_deletions")
         .select("message_id")
@@ -349,6 +357,93 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     },
     [computeUnreadCounts]
   );
+
+  // ============================================================
+  // load stories
+  // ============================================================
+  const loadStories = useCallback(async () => {
+    if (!userId) return;
+    setLoadingStories(true);
+
+    try {
+      const now = new Date().toISOString();
+
+      const { data: rows, error: err } = await supabase
+        .from("stories")
+        .select("*")
+        .gt("expires_at", now)
+        .order("created_at", { ascending: true });
+
+      if (err) throw err;
+
+      const userIds = [
+        ...new Set((rows ?? []).map((s) => s.user_id as string)),
+      ];
+
+      const { data: profiles } = userIds.length
+        ? await supabase
+            .from("profiles")
+            .select("id, display_name, email, username, avatar_url")
+            .in("id", userIds)
+        : { data: [] };
+
+      const profileMap = new Map(
+        ((profiles ?? []) as Profile[]).map((p) => [p.id, p])
+      );
+
+      const { data: myViews } = await supabase
+        .from("story_views")
+        .select("story_id")
+        .eq("viewer_id", userId);
+
+      const viewedSet = new Set(
+        (myViews ?? []).map((v) => v.story_id as string)
+      );
+
+      const groups = new Map<string, StoryGroup>();
+      for (const s of rows ?? []) {
+        const uid = s.user_id as string;
+        const profile = profileMap.get(uid) ?? null;
+        if (!profile) continue;
+
+        if (!groups.has(uid)) {
+          groups.set(uid, {
+            user: profile,
+            stories: [],
+            allViewed: true,
+          });
+        }
+        const g = groups.get(uid)!;
+        const viewed = viewedSet.has(s.id as string);
+        g.stories.push({
+          id: s.id as string,
+          user_id: uid,
+          media_url: s.media_url as string,
+          media_type: s.media_type as "image" | "video",
+          caption: (s.caption as string) || null,
+          created_at: s.created_at as string,
+          expires_at: s.expires_at as string,
+          user: profile,
+          viewed,
+        });
+        if (!viewed) g.allViewed = false;
+      }
+
+      const arr = Array.from(groups.values()).sort((a, b) => {
+        if (a.user.id === userId) return -1;
+        if (b.user.id === userId) return 1;
+        const ta = a.stories[a.stories.length - 1]?.created_at ?? "";
+        const tb = b.stories[b.stories.length - 1]?.created_at ?? "";
+        return tb.localeCompare(ta);
+      });
+
+      setStories(arr);
+    } catch (err) {
+      console.error("loadStories:", err);
+    } finally {
+      setLoadingStories(false);
+    }
+  }, [userId]);
 
   // ============================================================
   // Initialize
@@ -429,9 +524,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [isLogin, router, clearUserData, loadContacts, loadConversations]);
 
-  // ============================================================
+  // وقتی userId set شد، stories رو لود کن
+  useEffect(() => {
+    if (userId) {
+      void loadStories();
+    }
+  }, [userId, loadStories]);
+
   // sign-out listener
-  // ============================================================
   useEffect(() => {
     if (isLogin) return;
     const {
@@ -572,7 +672,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             if (existingError) throw existingError;
 
             if (existing) {
-              // اگر این گفتگو قبلاً توسط خودم مخفی شده بود، unhide کن
               await supabase
                 .from("conversation_hides")
                 .delete()
@@ -739,14 +838,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   // ============================================================
-  // deleteConversation (حذف گفتگو از دید خودم)
+  // deleteConversation
   // ============================================================
   const deleteConversation = useCallback(
     async (conversationId: string): Promise<boolean> => {
       if (!userId) return false;
 
       try {
-        // در صورت وجود، اول پاک کن (برای جلوگیری از duplicate)
         await supabase
           .from("conversation_hides")
           .delete()
@@ -759,7 +857,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         if (insErr) throw insErr;
 
-        // پاکسازی UI
         setConversations((prev) =>
           prev.filter((c) => c.id !== conversationId)
         );
@@ -780,6 +877,129 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
     },
     [userId]
+  );
+
+  // ============================================================
+  // createStory
+  // ============================================================
+  const createStory = useCallback(
+    async (file: File, caption?: string): Promise<CreateStoryResult> => {
+      if (!userId) return { ok: false, error: "Not logged in" };
+
+      if (
+        !file.type.startsWith("image/") &&
+        !file.type.startsWith("video/")
+      ) {
+        return { ok: false, error: "Please select an image or video." };
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        return { ok: false, error: "File must be smaller than 20 MB." };
+      }
+
+      try {
+        const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+        const safeExt = /^[a-z0-9]{1,8}$/.test(ext) ? ext : "jpg";
+        const fileName = `${userId}/story-${Date.now()}.${safeExt}`;
+
+        const { error: upErr } = await supabase.storage
+          .from("stories")
+          .upload(fileName, file, {
+            cacheControl: "3600",
+            contentType: file.type,
+          });
+
+        if (upErr) throw upErr;
+
+        const { data: urlData } = supabase.storage
+          .from("stories")
+          .getPublicUrl(fileName);
+
+        const mediaType = file.type.startsWith("video/") ? "video" : "image";
+
+        const { error: insErr } = await supabase.from("stories").insert({
+          user_id: userId,
+          media_url: urlData.publicUrl,
+          media_type: mediaType,
+          caption: caption?.trim() || null,
+        });
+
+        if (insErr) throw insErr;
+
+        await loadStories();
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: getErrorMessage(err) };
+      }
+    },
+    [userId, loadStories]
+  );
+
+  // ============================================================
+  // viewStory
+  // ============================================================
+  const viewStory = useCallback(
+    async (storyId: string) => {
+      if (!userId) return;
+      try {
+        await supabase
+          .from("story_views")
+          .insert({ story_id: storyId, viewer_id: userId });
+
+        setStories((prev) =>
+          prev.map((g) => {
+            const updated = g.stories.map((s) =>
+              s.id === storyId ? { ...s, viewed: true } : s
+            );
+            return {
+              ...g,
+              stories: updated,
+              allViewed: updated.every((s) => s.viewed),
+            };
+          })
+        );
+      } catch (err) {
+        console.error("viewStory:", err);
+      }
+    },
+    [userId]
+  );
+
+  // ============================================================
+  // deleteStory
+  // ============================================================
+  const deleteStory = useCallback(
+    async (storyId: string) => {
+      if (!userId) return false;
+      try {
+        const { data: row } = await supabase
+          .from("stories")
+          .select("media_url")
+          .eq("id", storyId)
+          .maybeSingle();
+
+        const { error: delErr } = await supabase
+          .from("stories")
+          .delete()
+          .eq("id", storyId)
+          .eq("user_id", userId);
+
+        if (delErr) throw delErr;
+
+        if (row?.media_url) {
+          const path = (row.media_url as string).split("/stories/")[1];
+          if (path) {
+            await supabase.storage.from("stories").remove([path]);
+          }
+        }
+
+        await loadStories();
+        return true;
+      } catch (err) {
+        console.error("deleteStory:", err);
+        return false;
+      }
+    },
+    [userId, loadStories]
   );
 
   // ============================================================
@@ -862,7 +1082,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [userId, activeConversation, markAsRead, loadConversations]);
 
   // ============================================================
-  // Realtime: membership (گفتگوی جدید)
+  // Realtime: membership
   // ============================================================
   useEffect(() => {
     if (!userId) return;
@@ -887,7 +1107,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [userId, loadConversations]);
 
   // ============================================================
-  // Realtime: all messages (sidebar + unhide)
+  // Realtime: all messages (sidebar)
   // ============================================================
   useEffect(() => {
     if (!userId) return;
@@ -945,7 +1165,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               )
             );
           } else {
-            // ممکن است گفتگو توسط این کاربر مخفی شده باشد → unhide کن
             void supabase
               .from("conversation_hides")
               .delete()
@@ -1132,6 +1351,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     activeConversation,
     messages,
     unreadCounts,
+    stories,
+    loadingStories,
     loading,
     loadingMessages,
     sending,
@@ -1140,6 +1361,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setActiveConversation,
     loadContacts,
     loadConversations,
+    loadStories,
     openConversation,
     sendMessage,
     clearActive,
@@ -1149,6 +1371,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     deleteMessageForMe,
     deleteMessageForEveryone,
     deleteConversation,
+    createStory,
+    viewStory,
+    deleteStory,
     signOut,
   };
 

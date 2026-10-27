@@ -27,6 +27,9 @@ type Props = {
   onBack: () => void;
 };
 
+const CHAT_PATTERN =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%23748a9c' fill-opacity='0.14'%3E%3Ccircle cx='20' cy='20' r='2.5'/%3E%3Ccircle cx='70' cy='50' r='2'/%3E%3Ccircle cx='100' cy='20' r='1.8'/%3E%3Ccircle cx='40' cy='80' r='2.5'/%3E%3Ccircle cx='90' cy='90' r='2'/%3E%3Ccircle cx='10' cy='60' r='1.8'/%3E%3Ccircle cx='60' cy='110' r='1.5'/%3E%3C/g%3E%3C/svg%3E\")";
+
 export default function ChatWindow({
   activeConversation,
   messages,
@@ -45,7 +48,6 @@ export default function ChatWindow({
   const [deleting, setDeleting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // ← جدید: state جستجو
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -54,7 +56,6 @@ export default function ChatWindow({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // باز کردن جستجو با Ctrl+F
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
@@ -71,7 +72,6 @@ export default function ChatWindow({
     return () => window.removeEventListener("keydown", handler);
   }, [searchOpen]);
 
-  // بستن منو با کلیک بیرون
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -96,7 +96,6 @@ export default function ChatWindow({
     setSearchQuery("");
   }, [activeConversation?.id]);
 
-  // پیام‌های فیلتر شده
   const filteredMessages = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return messages;
@@ -121,7 +120,7 @@ export default function ChatWindow({
 
   if (!activeConversation) {
     return (
-      <div className="flex h-full flex-col items-center justify-center bg-slate-50 text-slate-400 dark:bg-slate-900/50">
+      <div className="flex h-full flex-col items-center justify-center bg-slate-50 text-slate-400 dark:bg-[#0e1621] dark:text-slate-500">
         <div className="rounded-full bg-slate-200 p-6 dark:bg-slate-800">
           <Search size={48} className="opacity-40" />
         </div>
@@ -136,7 +135,7 @@ export default function ChatWindow({
   const avatarUrl = activeConversation.otherUser.avatar_url;
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#e6ebee] dark:bg-[#0e1621]">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-100 dark:bg-[#0e1621]">
       {/* HEADER */}
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-2 dark:border-slate-800 dark:bg-slate-900 sm:px-4">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -173,7 +172,6 @@ export default function ChatWindow({
         </div>
 
         <div className="flex shrink-0 items-center gap-1 text-slate-500 dark:text-slate-400 sm:gap-2">
-          {/* ✅ Search button — حالا کار می‌کند */}
           <button
             type="button"
             onClick={() => {
@@ -186,7 +184,6 @@ export default function ChatWindow({
                 : "hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}
             aria-label="Search in chat"
-            aria-pressed={searchOpen}
           >
             <Search size={20} />
           </button>
@@ -205,7 +202,6 @@ export default function ChatWindow({
               onClick={() => setMenuOpen((v) => !v)}
               className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800"
               aria-label="More options"
-              aria-expanded={menuOpen}
             >
               <MoreVertical size={20} />
             </button>
@@ -227,7 +223,7 @@ export default function ChatWindow({
         </div>
       </header>
 
-      {/* ✅ SEARCH BAR */}
+      {/* SEARCH BAR */}
       {searchOpen && (
         <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
           <Search size={16} className="text-slate-400" />
@@ -237,10 +233,10 @@ export default function ChatWindow({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search in this chat..."
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
+            className="flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100"
           />
           {searchQuery && (
-            <span className="shrink-0 text-xs text-slate-500">
+            <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
               {filteredMessages.length} result
               {filteredMessages.length !== 1 ? "s" : ""}
             </span>
@@ -259,8 +255,14 @@ export default function ChatWindow({
         </div>
       )}
 
-      {/* MESSAGE AREA */}
-      <div className="telegram-pattern scrollbar-hidden flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 sm:p-6">
+      {/* MESSAGE AREA — dark mode کاملاً پشتیبانی می‌شود */}
+      <div
+        className="scrollbar-hidden relative flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-slate-100 p-3 dark:bg-[#0e1621] sm:p-6"
+        style={{
+          backgroundImage: CHAT_PATTERN,
+          backgroundSize: "120px 120px",
+        }}
+      >
         {loadingMessages && (
           <p className="text-center text-sm text-slate-500 dark:text-slate-400">
             Loading messages...
@@ -278,12 +280,11 @@ export default function ChatWindow({
           </div>
         )}
 
-        {/* اگر جستجو فعال است و نتیجه‌ای نبود */}
         {!loadingMessages &&
           messages.length > 0 &&
           searchQuery.trim() &&
           filteredMessages.length === 0 && (
-            <div className="m-auto rounded-xl bg-white/80 p-4 text-center text-sm text-slate-500 shadow-sm backdrop-blur-sm dark:bg-slate-800/80">
+            <div className="m-auto rounded-xl bg-white/80 p-4 text-center text-sm text-slate-500 shadow-sm backdrop-blur-sm dark:bg-slate-800/80 dark:text-slate-400">
               No messages match &quot;{searchQuery}&quot;.
             </div>
           )}
