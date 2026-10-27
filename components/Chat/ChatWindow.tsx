@@ -1,13 +1,14 @@
 // components/chat/ChatWindow.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   MoreVertical,
   Phone,
   Search,
   Trash2,
+  X,
 } from "lucide-react";
 import MessageBubble from "@/components/Chat/MessageBubble";
 import MessageInput from "@/components/Chat/MessageInput";
@@ -44,12 +45,33 @@ export default function ChatWindow({
   const [deleting, setDeleting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // اسکرول به پایین
+  // ← جدید: state جستجو
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // بستن منو با Escape یا کلیک بیرون
+  // باز کردن جستجو با Ctrl+F
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setSearchOpen(true);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
+      }
+      if (e.key === "Escape" && searchOpen) {
+        setSearchOpen(false);
+        setSearchQuery("");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [searchOpen]);
+
+  // بستن منو با کلیک بیرون
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -68,10 +90,18 @@ export default function ChatWindow({
     };
   }, [menuOpen]);
 
-  // بستن منو هنگام تغییر گفتگو
   useEffect(() => {
     setMenuOpen(false);
+    setSearchOpen(false);
+    setSearchQuery("");
   }, [activeConversation?.id]);
+
+  // پیام‌های فیلتر شده
+  const filteredMessages = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return messages;
+    return messages.filter((m) => m.content.toLowerCase().includes(q));
+  }, [messages, searchQuery]);
 
   const handleDeleteConversation = async () => {
     if (!activeConversation) return;
@@ -142,11 +172,21 @@ export default function ChatWindow({
           </div>
         </div>
 
-        {/* Actions */}
         <div className="flex shrink-0 items-center gap-1 text-slate-500 dark:text-slate-400 sm:gap-2">
+          {/* ✅ Search button — حالا کار می‌کند */}
           <button
-            className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+            type="button"
+            onClick={() => {
+              setSearchOpen((v) => !v);
+              setTimeout(() => searchInputRef.current?.focus(), 50);
+            }}
+            className={`rounded-full p-2 transition ${
+              searchOpen
+                ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-300"
+                : "hover:bg-slate-100 dark:hover:bg-slate-800"
+            }`}
             aria-label="Search in chat"
+            aria-pressed={searchOpen}
           >
             <Search size={20} />
           </button>
@@ -154,11 +194,11 @@ export default function ChatWindow({
           <button
             className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800"
             aria-label="Call"
+            title="Voice call (coming soon)"
           >
             <Phone size={20} />
           </button>
 
-          {/* More menu */}
           <div className="relative" ref={menuRef}>
             <button
               type="button"
@@ -187,6 +227,38 @@ export default function ChatWindow({
         </div>
       </header>
 
+      {/* ✅ SEARCH BAR */}
+      {searchOpen && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
+          <Search size={16} className="text-slate-400" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search in this chat..."
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
+          />
+          {searchQuery && (
+            <span className="shrink-0 text-xs text-slate-500">
+              {filteredMessages.length} result
+              {filteredMessages.length !== 1 ? "s" : ""}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setSearchOpen(false);
+              setSearchQuery("");
+            }}
+            className="rounded-full p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+            aria-label="Close search"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* MESSAGE AREA */}
       <div className="telegram-pattern scrollbar-hidden flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 sm:p-6">
         {loadingMessages && (
@@ -206,7 +278,17 @@ export default function ChatWindow({
           </div>
         )}
 
-        {messages.map((message) => (
+        {/* اگر جستجو فعال است و نتیجه‌ای نبود */}
+        {!loadingMessages &&
+          messages.length > 0 &&
+          searchQuery.trim() &&
+          filteredMessages.length === 0 && (
+            <div className="m-auto rounded-xl bg-white/80 p-4 text-center text-sm text-slate-500 shadow-sm backdrop-blur-sm dark:bg-slate-800/80">
+              No messages match &quot;{searchQuery}&quot;.
+            </div>
+          )}
+
+        {filteredMessages.map((message) => (
           <MessageBubble
             key={message.id}
             message={message}
