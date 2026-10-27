@@ -40,12 +40,37 @@ export type Story = {
   expires_at: string;
   user?: Profile | null;
   viewed?: boolean;
+
+  // interactions
+  like_count?: number;
+  comment_count?: number;
+  liked_by_me?: boolean;
+
+  // repost
+  reposted_from_story_id?: string | null;
+  reposted_from_user_id?: string | null;
+  reposted_from_user?: Profile | null;
 };
 
 export type StoryGroup = {
   user: Profile;
   stories: Story[];
   allViewed: boolean;
+};
+
+export type StoryLike = {
+  story_id: string;
+  user_id: string;
+  created_at: string;
+};
+
+export type StoryComment = {
+  id: string;
+  story_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  user?: Profile | null;
 };
 
 // ============================================================

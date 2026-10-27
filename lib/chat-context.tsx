@@ -15,8 +15,8 @@ import type {
   Conversation,
   Message,
   Profile,
-  Story,
   StoryGroup,
+  StoryComment,
 } from "@/lib/chat";
 
 function getErrorMessage(error: unknown): string {
@@ -32,6 +32,26 @@ function getErrorMessage(error: unknown): string {
   return "An unexpected error occurred.";
 }
 
+/** لاگ خطای Supabase با تمام جزئیات */
+function logSupabaseError(label: string, err: unknown) {
+  if (typeof err === "object" && err !== null) {
+    const e = err as {
+      message?: string;
+      code?: string;
+      details?: string;
+      hint?: string;
+    };
+    console.error(label, {
+      message: e.message,
+      code: e.code,
+      details: e.details,
+      hint: e.hint,
+    });
+  } else {
+    console.error(label, String(err));
+  }
+}
+
 function sortByRecency(list: Conversation[]): Conversation[] {
   return [...list].sort((a, b) => {
     const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
@@ -43,6 +63,7 @@ function sortByRecency(list: Conversation[]): Conversation[] {
 type UpdateUsernameResult = { ok: boolean; error?: string };
 type UpdateAvatarResult = { ok: boolean; error?: string; url?: string };
 type CreateStoryResult = { ok: boolean; error?: string };
+type SimpleResult = { ok: boolean; error?: string };
 
 type ChatContextType = {
   userId: string;
@@ -75,6 +96,11 @@ type ChatContextType = {
   createStory: (file: File, caption?: string) => Promise<CreateStoryResult>;
   viewStory: (storyId: string) => Promise<void>;
   deleteStory: (storyId: string) => Promise<boolean>;
+  toggleStoryLike: (storyId: string) => Promise<boolean>;
+  getStoryComments: (storyId: string) => Promise<StoryComment[]>;
+  addStoryComment: (storyId: string, content: string) => Promise<SimpleResult>;
+  deleteStoryComment: (commentId: string) => Promise<boolean>;
+  repostStory: (storyId: string) => Promise<SimpleResult>;
   signOut: () => Promise<void>;
 };
 
@@ -138,10 +164,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .eq("user_id", uid);
 
       if (mErr) {
-        console.error("computeUnreadCounts failed:", {
-          message: mErr.message,
-          code: mErr.code,
-        });
+        logSupabaseError("computeUnreadCounts", mErr);
         return;
       }
 
@@ -175,7 +198,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }
 
         if (result.error) {
-          console.error("count unread failed:", result.error.message);
+          logSupabaseError("count unread", result.error);
           continue;
         }
 
@@ -184,7 +207,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       setUnreadCounts(counts);
     } catch (err) {
-      console.error("computeUnreadCounts exception:", err);
+      logSupabaseError("computeUnreadCounts exception", err);
     }
   }, []);
 
@@ -374,7 +397,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .gt("expires_at", now)
         .order("created_at", { ascending: true });
 
-      if (err) throw err;
+      if (err) {
+        logSupabaseError("loadStories rows", err);
+        return;
+      }
 
       const userIds = [
         ...new Set((rows ?? []).map((s) => s.user_id as string)),
@@ -400,6 +426,50 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         (myViews ?? []).map((v) => v.story_id as string)
       );
 
+      // likes
+      const { data: allLikes } = await supabase
+        .from("story_likes")
+        .select("story_id, user_id");
+
+      const likeCounts = new Map<string, number>();
+      const likedByMe = new Set<string>();
+      for (const l of allLikes ?? []) {
+        const sid = l.story_id as string;
+        likeCounts.set(sid, (likeCounts.get(sid) ?? 0) + 1);
+        if (l.user_id === userId) likedByMe.add(sid);
+      }
+
+      // comments
+      const { data: allComments } = await supabase
+        .from("story_comments")
+        .select("story_id");
+
+      const commentCounts = new Map<string, number>();
+      for (const c of allComments ?? []) {
+        const sid = c.story_id as string;
+        commentCounts.set(sid, (commentCounts.get(sid) ?? 0) + 1);
+      }
+
+      // reposted-from users
+      const repostedFromIds = [
+        ...new Set(
+          (rows ?? [])
+            .map((s) => s.reposted_from_user_id as string | null)
+            .filter((x): x is string => !!x)
+        ),
+      ];
+
+      const { data: repostedProfiles } = repostedFromIds.length
+        ? await supabase
+            .from("profiles")
+            .select("id, display_name, email, username, avatar_url")
+            .in("id", repostedFromIds)
+        : { data: [] };
+
+      const repostedProfileMap = new Map(
+        ((repostedProfiles ?? []) as Profile[]).map((p) => [p.id, p])
+      );
+
       const groups = new Map<string, StoryGroup>();
       for (const s of rows ?? []) {
         const uid = s.user_id as string;
@@ -415,6 +485,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }
         const g = groups.get(uid)!;
         const viewed = viewedSet.has(s.id as string);
+
         g.stories.push({
           id: s.id as string,
           user_id: uid,
@@ -425,7 +496,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           expires_at: s.expires_at as string,
           user: profile,
           viewed,
+
+          like_count: likeCounts.get(s.id as string) ?? 0,
+          comment_count: commentCounts.get(s.id as string) ?? 0,
+          liked_by_me: likedByMe.has(s.id as string),
+
+          reposted_from_story_id:
+            (s.reposted_from_story_id as string) || null,
+          reposted_from_user_id:
+            (s.reposted_from_user_id as string) || null,
+          reposted_from_user:
+            repostedProfileMap.get(s.reposted_from_user_id as string) ??
+            null,
         });
+
         if (!viewed) g.allViewed = false;
       }
 
@@ -439,7 +523,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       setStories(arr);
     } catch (err) {
-      console.error("loadStories:", err);
+      logSupabaseError("loadStories exception", err);
     } finally {
       setLoadingStories(false);
     }
@@ -524,7 +608,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [isLogin, router, clearUserData, loadContacts, loadConversations]);
 
-  // وقتی userId set شد، stories رو لود کن
   useEffect(() => {
     if (userId) {
       void loadStories();
@@ -619,7 +702,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .eq("conversation_id", conversationId)
         .eq("user_id", userId);
 
-      if (updateError) console.error("markAsRead:", updateError.message);
+      if (updateError) logSupabaseError("markAsRead", updateError);
     },
     [userId]
   );
@@ -941,9 +1024,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     async (storyId: string) => {
       if (!userId) return;
       try {
-        await supabase
+        const { error: insErr } = await supabase
           .from("story_views")
           .insert({ story_id: storyId, viewer_id: userId });
+
+        // 23505 = already viewed → نادیده بگیر
+        if (insErr && insErr.code !== "23505") {
+          logSupabaseError("viewStory", insErr);
+          return;
+        }
 
         setStories((prev) =>
           prev.map((g) => {
@@ -958,7 +1047,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           })
         );
       } catch (err) {
-        console.error("viewStory:", err);
+        logSupabaseError("viewStory exception", err);
       }
     },
     [userId]
@@ -995,8 +1084,272 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         await loadStories();
         return true;
       } catch (err) {
-        console.error("deleteStory:", err);
+        logSupabaseError("deleteStory", err);
         return false;
+      }
+    },
+    [userId, loadStories]
+  );
+
+  // ============================================================
+  // toggleStoryLike
+  // ============================================================
+  const toggleStoryLike = useCallback(
+    async (storyId: string): Promise<boolean> => {
+      if (!userId) return false;
+      try {
+        const { data: existing, error: checkErr } = await supabase
+          .from("story_likes")
+          .select("story_id")
+          .eq("story_id", storyId)
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (checkErr) {
+          logSupabaseError("toggleStoryLike CHECK", checkErr);
+          return false;
+        }
+
+        if (existing) {
+          const { error: delErr } = await supabase
+            .from("story_likes")
+            .delete()
+            .eq("story_id", storyId)
+            .eq("user_id", userId);
+
+          if (delErr) {
+            logSupabaseError("toggleStoryLike DELETE", delErr);
+            return false;
+          }
+        } else {
+          const { error: insErr } = await supabase
+            .from("story_likes")
+            .insert({ story_id: storyId, user_id: userId });
+
+          if (insErr) {
+            if (insErr.code === "23505") {
+              console.warn("Like already exists (race), ignoring");
+            } else {
+              logSupabaseError("toggleStoryLike INSERT", insErr);
+              return false;
+            }
+          }
+        }
+
+        setStories((prev) =>
+          prev.map((g) => ({
+            ...g,
+            stories: g.stories.map((s) =>
+              s.id === storyId
+                ? {
+                    ...s,
+                    liked_by_me: !s.liked_by_me,
+                    like_count: Math.max(
+                      0,
+                      (s.like_count ?? 0) + (s.liked_by_me ? -1 : 1)
+                    ),
+                  }
+                : s
+            ),
+          }))
+        );
+
+        return true;
+      } catch (err) {
+        logSupabaseError("toggleStoryLike EXCEPTION", err);
+        return false;
+      }
+    },
+    [userId]
+  );
+
+  // ============================================================
+  // getStoryComments
+  // ============================================================
+  const getStoryComments = useCallback(
+    async (storyId: string): Promise<StoryComment[]> => {
+      try {
+        const { data: rows, error: err } = await supabase
+          .from("story_comments")
+          .select("*")
+          .eq("story_id", storyId)
+          .order("created_at", { ascending: true });
+
+        if (err) {
+          logSupabaseError("getStoryComments", err);
+          return [];
+        }
+
+        const userIds = [
+          ...new Set((rows ?? []).map((r) => r.user_id as string)),
+        ];
+        const { data: profiles } = userIds.length
+          ? await supabase
+              .from("profiles")
+              .select("id, display_name, email, username, avatar_url")
+              .in("id", userIds)
+          : { data: [] };
+
+        const profileMap = new Map(
+          ((profiles ?? []) as Profile[]).map((p) => [p.id, p])
+        );
+
+        return (rows ?? []).map((r) => ({
+          id: r.id as string,
+          story_id: r.story_id as string,
+          user_id: r.user_id as string,
+          content: r.content as string,
+          created_at: r.created_at as string,
+          user: profileMap.get(r.user_id as string) ?? null,
+        }));
+      } catch (err) {
+        logSupabaseError("getStoryComments exception", err);
+        return [];
+      }
+    },
+    []
+  );
+
+  // ============================================================
+  // addStoryComment
+  // ============================================================
+  const addStoryComment = useCallback(
+    async (
+      storyId: string,
+      content: string
+    ): Promise<SimpleResult> => {
+      if (!userId) return { ok: false, error: "Not logged in" };
+      const text = content.trim();
+      if (!text) return { ok: false, error: "Comment is empty" };
+      if (text.length > 500) return { ok: false, error: "Comment too long" };
+
+      try {
+        const { error: insErr } = await supabase
+          .from("story_comments")
+          .insert({
+            story_id: storyId,
+            user_id: userId,
+            content: text,
+          });
+
+        if (insErr) {
+          logSupabaseError("addStoryComment", insErr);
+          return { ok: false, error: insErr.message };
+        }
+
+        setStories((prev) =>
+          prev.map((g) => ({
+            ...g,
+            stories: g.stories.map((s) =>
+              s.id === storyId
+                ? { ...s, comment_count: (s.comment_count ?? 0) + 1 }
+                : s
+            ),
+          }))
+        );
+
+        return { ok: true };
+      } catch (err) {
+        logSupabaseError("addStoryComment exception", err);
+        return { ok: false, error: getErrorMessage(err) };
+      }
+    },
+    [userId]
+  );
+
+  // ============================================================
+  // deleteStoryComment
+  // ============================================================
+  const deleteStoryComment = useCallback(
+    async (commentId: string): Promise<boolean> => {
+      if (!userId) return false;
+      try {
+        const { data: row } = await supabase
+          .from("story_comments")
+          .select("story_id")
+          .eq("id", commentId)
+          .maybeSingle();
+
+        const { error: delErr } = await supabase
+          .from("story_comments")
+          .delete()
+          .eq("id", commentId)
+          .eq("user_id", userId);
+
+        if (delErr) {
+          logSupabaseError("deleteStoryComment", delErr);
+          return false;
+        }
+
+        if (row?.story_id) {
+          const storyId = row.story_id as string;
+          setStories((prev) =>
+            prev.map((g) => ({
+              ...g,
+              stories: g.stories.map((s) =>
+                s.id === storyId
+                  ? {
+                      ...s,
+                      comment_count: Math.max(0, (s.comment_count ?? 0) - 1),
+                    }
+                  : s
+              ),
+            }))
+          );
+        }
+
+        return true;
+      } catch (err) {
+        logSupabaseError("deleteStoryComment exception", err);
+        return false;
+      }
+    },
+    [userId]
+  );
+
+  // ============================================================
+  // repostStory
+  // ============================================================
+  const repostStory = useCallback(
+    async (storyId: string): Promise<SimpleResult> => {
+      if (!userId) return { ok: false, error: "Not logged in" };
+
+      try {
+        const { data: original, error: fetchErr } = await supabase
+          .from("stories")
+          .select("*")
+          .eq("id", storyId)
+          .single();
+
+        if (fetchErr) {
+          logSupabaseError("repostStory fetch", fetchErr);
+          return { ok: false, error: fetchErr.message };
+        }
+        if (!original) throw new Error("Story not found");
+
+        if (original.user_id === userId) {
+          return { ok: false, error: "You can't repost your own story" };
+        }
+
+        const { error: insErr } = await supabase.from("stories").insert({
+          user_id: userId,
+          media_url: original.media_url,
+          media_type: original.media_type,
+          caption: original.caption,
+          reposted_from_story_id: storyId,
+          reposted_from_user_id: original.user_id,
+        });
+
+        if (insErr) {
+          logSupabaseError("repostStory insert", insErr);
+          return { ok: false, error: insErr.message };
+        }
+
+        await loadStories();
+        return { ok: true };
+      } catch (err) {
+        logSupabaseError("repostStory exception", err);
+        return { ok: false, error: getErrorMessage(err) };
       }
     },
     [userId, loadStories]
@@ -1374,6 +1727,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     createStory,
     viewStory,
     deleteStory,
+    toggleStoryLike,
+    getStoryComments,
+    addStoryComment,
+    deleteStoryComment,
+    repostStory,
     signOut,
   };
 
