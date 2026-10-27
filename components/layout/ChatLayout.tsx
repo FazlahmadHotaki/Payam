@@ -26,7 +26,7 @@ export default function ChatLayout() {
     return (
       <div className="flex h-full items-center justify-center text-slate-500">
         <LoaderCircle className="mr-2 animate-spin" size={20} />
-        Connecting to Telechat...
+        Connecting to Payam...
       </div>
     );
   }
