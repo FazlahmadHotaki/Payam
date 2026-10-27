@@ -1,6 +1,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Light theme */
+/* ============================================================
+   Light theme (only mode)
+   ============================================================ */
 :root {
   color-scheme: light;
   --app-bg: #f1f5f9;
@@ -9,34 +11,9 @@
   --text-secondary: #64748b;
   --border-color: #e2e8f0;
 }
-/* ============================================================
-   Hide scrollbar globally (scroll still works)
-   ============================================================ */
 
-/* Chrome / Safari / Edge */
-*::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
-}
-
-/* Firefox */
-* {
-  scrollbar-width: none;
-}
-
-/* IE / legacy Edge */
-* {
-  -ms-overflow-style: none;
-}
-/* Dark theme */
-.dark {
-  color-scheme: dark;
-  --app-bg: #0f172a;
-  --panel-bg: #1e293b;
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --border-color: #334155;
+html {
+  color-scheme: light;
 }
 
 body {
@@ -45,16 +22,24 @@ body {
 }
 
 /* ============================================================
-   Telegram-style chat pattern background
+   Hide scrollbar globally (scroll still works)
    ============================================================ */
-
-.telegram-pattern {
-  background-color: #e6ebee;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%23748a9c' fill-opacity='0.16'%3E%3Ccircle cx='20' cy='20' r='2.5'/%3E%3Ccircle cx='70' cy='50' r='2'/%3E%3Ccircle cx='100' cy='20' r='1.8'/%3E%3Ccircle cx='40' cy='80' r='2.5'/%3E%3Ccircle cx='90' cy='90' r='2'/%3E%3Ccircle cx='10' cy='60' r='1.8'/%3E%3Ccircle cx='60' cy='110' r='1.5'/%3E%3C/svg%3E");
-  background-size: 120px 120px;
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
-.dark .telegram-pattern {
-  background-color: #0e1621;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%234a6a8a' fill-opacity='0.22'%3E%3Ccircle cx='20' cy='20' r='2.5'/%3E%3Ccircle cx='70' cy='50' r='2'/%3E%3Ccircle cx='100' cy='20' r='1.8'/%3E%3Ccircle cx='40' cy='80' r='2.5'/%3E%3Ccircle cx='90' cy='90' r='2'/%3E%3Ccircle cx='10' cy='60' r='1.8'/%3E%3Ccircle cx='60' cy='110' r='1.5'/%3E%3C/g%3E%3C/svg%3E");
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+/* ============================================================
+   Telegram-style chat pattern background (light only)
+   ============================================================ */
+.telegram-pattern {
+  background-color: #e6ebee;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%23748a9c' fill-opacity='0.16'%3E%3Ccircle cx='20' cy='20' r='2.5'/%3E%3Ccircle cx='70' cy='50' r='2'/%3E%3Ccircle cx='100' cy='20' r='1.8'/%3E%3Ccircle cx='40' cy='80' r='2.5'/%3E%3Ccircle cx='90' cy='90' r='2'/%3E%3Ccircle cx='10' cy='60' r='1.8'/%3E%3Ccircle cx='60' cy='110' r='1.5'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 120px 120px;
 }
