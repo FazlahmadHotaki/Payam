@@ -1,11 +1,18 @@
 // components/chat/ChatWindow.tsx
 "use client";
 
-import { useEffect, useRef } from "react";
-import { ArrowLeft, MoreVertical, Phone, Search } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  MoreVertical,
+  Phone,
+  Search,
+  Trash2,
+} from "lucide-react";
 import MessageBubble from "@/components/Chat/MessageBubble";
 import MessageInput from "@/components/Chat/MessageInput";
 import { displayName, type Conversation, type Message } from "@/lib/chat";
+import { useChat } from "@/lib/chat-context";
 
 type Props = {
   activeConversation: Conversation | null;
@@ -30,11 +37,57 @@ export default function ChatWindow({
   onSend,
   onBack,
 }: Props) {
+  const { deleteConversation } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // اسکرول به پایین
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // بستن منو با Escape یا کلیک بیرون
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onClick);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onClick);
+    };
+  }, [menuOpen]);
+
+  // بستن منو هنگام تغییر گفتگو
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [activeConversation?.id]);
+
+  const handleDeleteConversation = async () => {
+    if (!activeConversation) return;
+    const confirmed = window.confirm(
+      "Delete this chat? Messages will be removed from your list. If they message you again, the chat will come back."
+    );
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setMenuOpen(false);
+    const ok = await deleteConversation(activeConversation.id);
+    setDeleting(false);
+    if (ok && typeof window !== "undefined" && window.innerWidth < 768) {
+      onBack();
+    }
+  };
 
   if (!activeConversation) {
     return (
@@ -89,6 +142,7 @@ export default function ChatWindow({
           </div>
         </div>
 
+        {/* Actions */}
         <div className="flex shrink-0 items-center gap-1 text-slate-500 dark:text-slate-400 sm:gap-2">
           <button
             className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -96,18 +150,40 @@ export default function ChatWindow({
           >
             <Search size={20} />
           </button>
+
           <button
             className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800"
             aria-label="Call"
           >
             <Phone size={20} />
           </button>
-          <button
-            className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800"
-            aria-label="More options"
-          >
-            <MoreVertical size={20} />
-          </button>
+
+          {/* More menu */}
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+              aria-label="More options"
+              aria-expanded={menuOpen}
+            >
+              <MoreVertical size={20} />
+            </button>
+
+            {menuOpen && (
+              <div className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteConversation()}
+                  disabled={deleting}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950/40"
+                >
+                  <Trash2 size={16} />
+                  {deleting ? "Deleting..." : "Delete chat"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

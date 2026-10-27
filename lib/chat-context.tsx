@@ -61,6 +61,7 @@ type ChatContextType = {
   updateAvatar: (file: File) => Promise<UpdateAvatarResult>;
   deleteMessageForMe: (messageId: string) => Promise<boolean>;
   deleteMessageForEveryone: (messageId: string) => Promise<boolean>;
+  deleteConversation: (conversationId: string) => Promise<boolean>;
   signOut: () => Promise<void>;
 };
 
@@ -110,7 +111,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setError("");
   }, []);
 
-  /* ─── unread counts ─── */
+  // ============================================================
+  // unread counts
+  // ============================================================
   const computeUnreadCounts = useCallback(async (uid: string) => {
     try {
       const { data: memberships, error: mErr } = await supabase
@@ -174,7 +177,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  /* ─── load contacts ─── */
+  // ============================================================
+  // load contacts
+  // ============================================================
   const loadContacts = useCallback(async (uid: string) => {
     const { data, error: contactsError } = await supabase
       .from("profiles")
@@ -188,7 +193,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setContacts((data ?? []) as Profile[]);
   }, []);
 
-  /* ─── load conversations ─── */
+  // ============================================================
+  // load conversations — با فیلتر گفتگوهای مخفی‌شده
+  // ============================================================
   const loadConversations = useCallback(
     async (uid: string) => {
       const { data: memberships, error: membershipError } = await supabase
@@ -202,11 +209,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         );
       }
 
+      // ← جدید: گفتگوهای مخفی‌شده را بگیر
+      const { data: hiddenRows } = await supabase
+        .from("conversation_hides")
+        .select("conversation_id")
+        .eq("user_id", uid);
+
+      const hiddenSet = new Set(
+        (hiddenRows ?? []).map((r) => r.conversation_id as string)
+      );
+
       const conversationIds = [
         ...new Set(
           (memberships ?? []).map((row) => row.conversation_id as string)
         ),
-      ];
+      ].filter((id) => !hiddenSet.has(id));
 
       if (conversationIds.length === 0) {
         setConversations([]);
@@ -259,6 +276,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         );
       }
 
+      // آخرین پیام‌های غیرحذف‌شده
       const { data: latestMessages } = await supabase
         .from("messages")
         .select("id, conversation_id, content, created_at, sender_id")
@@ -266,6 +284,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .is("deleted_at", null)
         .order("created_at", { ascending: false });
 
+      // حذف‌های شخصی من
       const { data: myDeletions } = await supabase
         .from("message_deletions")
         .select("message_id")
@@ -331,7 +350,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [computeUnreadCounts]
   );
 
-  /* ─── initialize ─── */
+  // ============================================================
+  // Initialize
+  // ============================================================
   useEffect(() => {
     let cancelled = false;
 
@@ -408,7 +429,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [isLogin, router, clearUserData, loadContacts, loadConversations]);
 
-  /* sign-out */
+  // ============================================================
+  // sign-out listener
+  // ============================================================
   useEffect(() => {
     if (isLogin) return;
     const {
@@ -422,7 +445,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, [isLogin, router, clearUserData]);
 
-  /* ─── fetch messages for active conversation ─── */
+  // ============================================================
+  // fetch messages for active conversation
+  // ============================================================
   useEffect(() => {
     let cancelled = false;
 
@@ -475,7 +500,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, activeConversation]);
 
-  /* ─── markAsRead ─── */
+  // ============================================================
+  // markAsRead
+  // ============================================================
   const markAsRead = useCallback(
     async (conversationId: string) => {
       if (!userId) return;
@@ -497,7 +524,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId]
   );
 
-  /* ─── openConversation ─── */
+  // ============================================================
+  // openConversation
+  // ============================================================
   const openConversation = useCallback(
     async (contact: Profile): Promise<void> => {
       if (!userId) {
@@ -543,6 +572,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             if (existingError) throw existingError;
 
             if (existing) {
+              // اگر این گفتگو قبلاً توسط خودم مخفی شده بود، unhide کن
+              await supabase
+                .from("conversation_hides")
+                .delete()
+                .eq("conversation_id", shared.conversation_id)
+                .eq("user_id", userId);
+
               const selected = {
                 ...existing,
                 otherUser: contact,
@@ -550,6 +586,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               setActiveConversation(selected);
               setMessages([]);
               void markAsRead(selected.id);
+              void loadConversations(userId);
               return;
             }
           }
@@ -588,7 +625,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, router, loadConversations, markAsRead]
   );
 
-  /* ─── sendMessage ─── */
+  // ============================================================
+  // sendMessage
+  // ============================================================
   const sendMessage = useCallback(
     async (content: string): Promise<boolean> => {
       const text = content.trim();
@@ -646,7 +685,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, activeConversation, sending]
   );
 
-  /* ─── deleteMessageForMe ─── */
+  // ============================================================
+  // deleteMessageForMe
+  // ============================================================
   const deleteMessageForMe = useCallback(
     async (messageId: string): Promise<boolean> => {
       if (!userId) return false;
@@ -668,7 +709,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, loadConversations]
   );
 
-  /* ─── deleteMessageForEveryone ─── */
+  // ============================================================
+  // deleteMessageForEveryone
+  // ============================================================
   const deleteMessageForEveryone = useCallback(
     async (messageId: string): Promise<boolean> => {
       if (!userId) return false;
@@ -695,7 +738,53 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, loadConversations]
   );
 
-  /* ─── Realtime: active conversation messages ─── */
+  // ============================================================
+  // deleteConversation (حذف گفتگو از دید خودم)
+  // ============================================================
+  const deleteConversation = useCallback(
+    async (conversationId: string): Promise<boolean> => {
+      if (!userId) return false;
+
+      try {
+        // در صورت وجود، اول پاک کن (برای جلوگیری از duplicate)
+        await supabase
+          .from("conversation_hides")
+          .delete()
+          .eq("conversation_id", conversationId)
+          .eq("user_id", userId);
+
+        const { error: insErr } = await supabase
+          .from("conversation_hides")
+          .insert({ conversation_id: conversationId, user_id: userId });
+
+        if (insErr) throw insErr;
+
+        // پاکسازی UI
+        setConversations((prev) =>
+          prev.filter((c) => c.id !== conversationId)
+        );
+        setActiveConversation((cur) =>
+          cur?.id === conversationId ? null : cur
+        );
+        setMessages([]);
+        setUnreadCounts((prev) => {
+          const next = { ...prev };
+          delete next[conversationId];
+          return next;
+        });
+
+        return true;
+      } catch (err) {
+        setError(getErrorMessage(err));
+        return false;
+      }
+    },
+    [userId]
+  );
+
+  // ============================================================
+  // Realtime: active conversation messages
+  // ============================================================
   useEffect(() => {
     if (!userId || !activeConversation) return;
     const conversationId = activeConversation.id;
@@ -772,7 +861,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, activeConversation, markAsRead, loadConversations]);
 
-  /* ─── Realtime: membership ─── */
+  // ============================================================
+  // Realtime: membership (گفتگوی جدید)
+  // ============================================================
   useEffect(() => {
     if (!userId) return;
 
@@ -795,7 +886,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, loadConversations]);
 
-  /* ─── Realtime: all messages (sidebar) ─── */
+  // ============================================================
+  // Realtime: all messages (sidebar + unhide)
+  // ============================================================
   useEffect(() => {
     if (!userId) return;
 
@@ -852,7 +945,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               )
             );
           } else {
-            void loadConversations(userId);
+            // ممکن است گفتگو توسط این کاربر مخفی شده باشد → unhide کن
+            void supabase
+              .from("conversation_hides")
+              .delete()
+              .eq("conversation_id", newMessage.conversation_id)
+              .eq("user_id", userId)
+              .then(() => {
+                void loadConversations(userId);
+              });
           }
         }
       )
@@ -863,7 +964,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, loadConversations]);
 
-  /* ─── updateUsername ─── */
+  // ============================================================
+  // updateUsername
+  // ============================================================
   const updateUsername = useCallback(
     async (raw: string): Promise<UpdateUsernameResult> => {
       if (!userId) return { ok: false, error: "Not logged in" };
@@ -928,7 +1031,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId]
   );
 
-  /* ─── updateAvatar ─── */
+  // ============================================================
+  // updateAvatar
+  // ============================================================
   const updateAvatar = useCallback(
     async (file: File): Promise<UpdateAvatarResult> => {
       if (!userId) return { ok: false, error: "Not logged in" };
@@ -947,7 +1052,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           : "jpg";
         const fileName = `${userId}/avatar-${Date.now()}.${safeExt}`;
 
-        // حذف عکس قبلی
         if (myProfile?.avatar_url) {
           const oldPath = myProfile.avatar_url.split("/avatars/")[1];
           if (oldPath) {
@@ -1002,6 +1106,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, myProfile?.avatar_url]
   );
 
+  // ============================================================
+  // signOut
+  // ============================================================
   const signOut = useCallback(async () => {
     setError("");
     const { error: signOutError } = await supabase.auth.signOut();
@@ -1014,6 +1121,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     router.refresh();
   }, [router, clearUserData]);
 
+  // ============================================================
+  // value
+  // ============================================================
   const value: ChatContextType = {
     userId,
     myProfile,
@@ -1038,6 +1148,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     updateAvatar,
     deleteMessageForMe,
     deleteMessageForEveryone,
+    deleteConversation,
     signOut,
   };
 
