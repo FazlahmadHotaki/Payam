@@ -32,7 +32,6 @@ function getErrorMessage(error: unknown): string {
   return "An unexpected error occurred.";
 }
 
-/** لاگ خطای Supabase با تمام جزئیات */
 function logSupabaseError(label: string, err: unknown) {
   if (typeof err === "object" && err !== null) {
     const e = err as {
@@ -97,6 +96,7 @@ type ChatContextType = {
   viewStory: (storyId: string) => Promise<void>;
   deleteStory: (storyId: string) => Promise<boolean>;
   toggleStoryLike: (storyId: string) => Promise<boolean>;
+  getStoryLikes: (storyId: string) => Promise<Profile[]>;
   getStoryComments: (storyId: string) => Promise<StoryComment[]>;
   addStoryComment: (storyId: string, content: string) => Promise<SimpleResult>;
   deleteStoryComment: (commentId: string) => Promise<boolean>;
@@ -426,7 +426,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         (myViews ?? []).map((v) => v.story_id as string)
       );
 
-      // likes
       const { data: allLikes } = await supabase
         .from("story_likes")
         .select("story_id, user_id");
@@ -439,7 +438,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (l.user_id === userId) likedByMe.add(sid);
       }
 
-      // comments
       const { data: allComments } = await supabase
         .from("story_comments")
         .select("story_id");
@@ -450,7 +448,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         commentCounts.set(sid, (commentCounts.get(sid) ?? 0) + 1);
       }
 
-      // reposted-from users
       const repostedFromIds = [
         ...new Set(
           (rows ?? [])
@@ -1028,7 +1025,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           .from("story_views")
           .insert({ story_id: storyId, viewer_id: userId });
 
-        // 23505 = already viewed → نادیده بگیر
         if (insErr && insErr.code !== "23505") {
           logSupabaseError("viewStory", insErr);
           return;
@@ -1161,6 +1157,41 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
     },
     [userId]
+  );
+
+  // ============================================================
+  // getStoryLikes
+  // ============================================================
+  const getStoryLikes = useCallback(
+    async (storyId: string): Promise<Profile[]> => {
+      try {
+        const { data: rows, error: err } = await supabase
+          .from("story_likes")
+          .select("user_id")
+          .eq("story_id", storyId);
+
+        if (err) {
+          logSupabaseError("getStoryLikes", err);
+          return [];
+        }
+
+        const userIds = [
+          ...new Set((rows ?? []).map((r) => r.user_id as string)),
+        ];
+        if (userIds.length === 0) return [];
+
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, display_name, email, username, avatar_url")
+          .in("id", userIds);
+
+        return (profiles ?? []) as Profile[];
+      } catch (err) {
+        logSupabaseError("getStoryLikes exception", err);
+        return [];
+      }
+    },
+    []
   );
 
   // ============================================================
@@ -1728,6 +1759,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     viewStory,
     deleteStory,
     toggleStoryLike,
+    getStoryLikes,
     getStoryComments,
     addStoryComment,
     deleteStoryComment,

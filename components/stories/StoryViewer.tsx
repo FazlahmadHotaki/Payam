@@ -12,11 +12,13 @@ import {
   Repeat2,
   Send,
   LoaderCircle,
+  Activity,
 } from "lucide-react";
 import { useChat } from "@/lib/chat-context";
 import {
   displayName,
   relativeTime,
+  type Profile,
   type StoryGroup,
   type StoryComment,
 } from "@/lib/chat";
@@ -33,6 +35,7 @@ export default function StoryViewer({ group, onClose }: Props) {
     deleteStory,
     toggleStoryLike,
     getStoryComments,
+    getStoryLikes,
     addStoryComment,
     deleteStoryComment,
     repostStory,
@@ -42,10 +45,23 @@ export default function StoryViewer({ group, onClose }: Props) {
 
   const [index, setIndex] = useState(0);
   const [progress, setProgress] = useState(0);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+
+  // Panels
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activityTab, setActivityTab] = useState<"likes" | "comments">(
+    "likes"
+  );
+
+  // Activity data
+  const [likers, setLikers] = useState<Profile[]>([]);
   const [comments, setComments] = useState<StoryComment[]>([]);
+  const [loadingActivity, setLoadingActivity] = useState(false);
+
+  // Comment composer
   const [commentText, setCommentText] = useState("");
   const [posting, setPosting] = useState(false);
+
+  // Repost
   const [replying, setReplying] = useState(false);
   const [likeAnim, setLikeAnim] = useState(false);
 
@@ -53,29 +69,26 @@ export default function StoryViewer({ group, onClose }: Props) {
   const timerRef = useRef<number | null>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
-  // ⭐ اینجا کلید حل مشکل است:
-  // از context می‌خوانیم تا همیشه داده‌ی جدید را ببینیم
+  // live data از context
   const liveGroup = group
     ? stories.find((g) => g.user.id === group.user.id) ?? group
     : null;
-
   const current = liveGroup?.stories[index];
 
-  // اگر کل storyهای این کاربر حذف شدند → ببند
+  // بستن اگر استوری‌ها حذف شدند
   useEffect(() => {
-    if (group && !liveGroup) {
-      onClose();
-    }
+    if (group && !liveGroup) onClose();
   }, [group, liveGroup, onClose]);
 
-  // reset index فقط وقتی گروه عوض شد (بر اساس id، نه reference)
+  // reset با تغییر کاربر
   useEffect(() => {
     setIndex(0);
     setProgress(0);
-    setCommentsOpen(false);
+    setActivityOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group?.user.id]);
 
-  // viewStory
+  // mark as viewed
   useEffect(() => {
     if (current && !current.viewed) {
       void viewStory(current.id);
@@ -83,9 +96,9 @@ export default function StoryViewer({ group, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id, current?.viewed]);
 
-  // progress bar (برای عکس ۵ ثانیه، برای ویدیو از timeupdate)
+  // progress
   useEffect(() => {
-    if (!current || commentsOpen) return;
+    if (!current || activityOpen) return;
     setProgress(0);
 
     if (current.media_type === "video") return;
@@ -106,26 +119,46 @@ export default function StoryViewer({ group, onClose }: Props) {
       if (timerRef.current) window.clearInterval(timerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current?.id, commentsOpen]);
+  }, [current?.id, activityOpen]);
 
-  // لود کامنت‌ها
+  // لود activity وقتی پنل باز شد
   useEffect(() => {
-    if (commentsOpen && current) {
-      void getStoryComments(current.id).then((c) => {
-        setComments(c);
-        setTimeout(() => {
-          commentsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-        }, 100);
-      });
-    }
+    if (!activityOpen || !current) return;
+
+    let cancelled = false;
+    setLoadingActivity(true);
+
+    (async () => {
+      const [l, c] = await Promise.all([
+        getStoryLikes(current.id),
+        getStoryComments(current.id),
+      ]);
+      if (cancelled) return;
+      setLikers(l);
+      setComments(c);
+      setLoadingActivity(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commentsOpen, current?.id]);
+  }, [activityOpen, current?.id]);
+
+  // اسکرول پایین وقتی کامنت جدید
+  useEffect(() => {
+    if (activityOpen && activityTab === "comments") {
+      setTimeout(() => {
+        commentsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+    }
+  }, [activityTab, comments.length, activityOpen]);
 
   const goNext = () => {
     if (!liveGroup) return;
     if (index < liveGroup.stories.length - 1) {
       setIndex(index + 1);
-      setCommentsOpen(false);
+      setActivityOpen(false);
     } else {
       onClose();
     }
@@ -134,7 +167,7 @@ export default function StoryViewer({ group, onClose }: Props) {
   const goPrev = () => {
     if (index > 0) {
       setIndex(index - 1);
-      setCommentsOpen(false);
+      setActivityOpen(false);
     }
   };
 
@@ -165,9 +198,26 @@ export default function StoryViewer({ group, onClose }: Props) {
 
   const handleLike = async () => {
     if (!current) return;
+    if (isMine) {
+      // برای استوری خودم → پنل activity
+      setActivityTab("likes");
+      setActivityOpen(true);
+      return;
+    }
     setLikeAnim(true);
     setTimeout(() => setLikeAnim(false), 300);
     await toggleStoryLike(current.id);
+  };
+
+  const handleCommentsButton = () => {
+    if (isMine) {
+      // برای استوری خودم → پنل activity روی تب comments
+      setActivityTab("comments");
+      setActivityOpen(true);
+    } else {
+      setActivityTab("comments");
+      setActivityOpen(true);
+    }
   };
 
   const handleRepost = async () => {
@@ -191,9 +241,6 @@ export default function StoryViewer({ group, onClose }: Props) {
       setCommentText("");
       const updated = await getStoryComments(current.id);
       setComments(updated);
-      setTimeout(() => {
-        commentsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      }, 100);
     }
   };
 
@@ -292,7 +339,7 @@ export default function StoryViewer({ group, onClose }: Props) {
           />
         )}
 
-        {current.caption && !commentsOpen && (
+        {current.caption && !activityOpen && (
           <div className="absolute bottom-24 left-4 right-4 rounded-xl bg-black/60 px-4 py-2 text-center text-sm text-white backdrop-blur-sm">
             {current.caption}
           </div>
@@ -316,24 +363,35 @@ export default function StoryViewer({ group, onClose }: Props) {
       </div>
 
       {/* Bottom actions */}
-      {!commentsOpen && (
+      {!activityOpen && (
         <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-around gap-2 bg-gradient-to-t from-black/80 to-transparent p-4 pb-6">
+          {/* Heart */}
           <button
             onClick={handleLike}
             className="flex flex-col items-center gap-1 text-white"
-            aria-label="Like"
+            aria-label={isMine ? "See who liked" : "Like"}
+            title={isMine ? "See who liked" : "Like"}
           >
             <Heart
               size={26}
               className={`transition-transform ${
                 likeAnim ? "scale-125" : "scale-100"
-              } ${current.liked_by_me ? "fill-red-500 text-red-500" : ""}`}
+              } ${
+                isMine
+                  ? current.like_count
+                    ? "fill-red-500 text-red-500"
+                    : ""
+                  : current.liked_by_me
+                  ? "fill-red-500 text-red-500"
+                  : ""
+              }`}
             />
             <span className="text-xs">{current.like_count ?? 0}</span>
           </button>
 
+          {/* Comments */}
           <button
-            onClick={() => setCommentsOpen(true)}
+            onClick={handleCommentsButton}
             className="flex flex-col items-center gap-1 text-white"
             aria-label="Comments"
           >
@@ -341,6 +399,22 @@ export default function StoryViewer({ group, onClose }: Props) {
             <span className="text-xs">{current.comment_count ?? 0}</span>
           </button>
 
+          {/* Activity (فقط برای خودم) */}
+          {isMine && (
+            <button
+              onClick={() => {
+                setActivityTab("likes");
+                setActivityOpen(true);
+              }}
+              className="flex flex-col items-center gap-1 text-white"
+              aria-label="Activity"
+            >
+              <Activity size={26} />
+              <span className="text-xs">Activity</span>
+            </button>
+          )}
+
+          {/* Repost (فقط برای دیگران) */}
           {!isMine && (
             <button
               onClick={() => void handleRepost()}
@@ -359,119 +433,203 @@ export default function StoryViewer({ group, onClose }: Props) {
         </div>
       )}
 
-      {/* Comments panel */}
-      {commentsOpen && (
-        <div className="absolute inset-x-0 bottom-0 z-30 flex max-h-[70vh] flex-col rounded-t-2xl bg-white shadow-xl dark:bg-slate-900">
-          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-            <h3 className="font-semibold text-slate-900 dark:text-white">
-              Comments ({comments.length})
-            </h3>
+      {/* Activity panel */}
+      {activityOpen && (
+        <div className="absolute inset-x-0 bottom-0 z-30 flex max-h-[75vh] flex-col rounded-t-2xl bg-white shadow-xl dark:bg-slate-900">
+          {/* Tabs */}
+          <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+            <div className="flex flex-1 gap-1">
+              <button
+                onClick={() => setActivityTab("likes")}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                  activityTab === "likes"
+                    ? "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400"
+                    : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                }`}
+              >
+                <Heart size={14} />
+                Likes ({current.like_count ?? 0})
+              </button>
+              <button
+                onClick={() => setActivityTab("comments")}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                  activityTab === "comments"
+                    ? "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400"
+                    : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                }`}
+              >
+                <MessageCircle size={14} />
+                Comments ({current.comment_count ?? 0})
+              </button>
+            </div>
             <button
-              onClick={() => setCommentsOpen(false)}
+              onClick={() => setActivityOpen(false)}
               className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-              aria-label="Close comments"
+              aria-label="Close"
             >
               <X size={18} />
             </button>
           </div>
 
+          {/* Content */}
           <div className="scrollbar-hidden flex-1 overflow-y-auto px-4 py-3">
-            {comments.length === 0 && (
-              <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                No comments yet. Be the first!
-              </p>
+            {loadingActivity && (
+              <div className="flex justify-center py-8">
+                <LoaderCircle
+                  size={20}
+                  className="animate-spin text-slate-400"
+                />
+              </div>
             )}
-            <div className="space-y-3">
-              {comments.map((c) => {
-                const canDelete = c.user_id === userId;
-                return (
-                  <div key={c.id} className="flex items-start gap-2.5">
-                    {c.user?.avatar_url ? (
+
+            {/* LIKES TAB */}
+            {!loadingActivity && activityTab === "likes" && (
+              <>
+                {likers.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                    No likes yet.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {likers.map((u) => (
+                      <div
+                        key={u.id}
+                        className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                      >
+                        {u.avatar_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={u.avatar_url}
+                            alt={displayName(u)}
+                            className="size-10 shrink-0 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
+                            {displayName(u).charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+                            {displayName(u)}
+                          </p>
+                          <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                            @{u.username || "no_username"}
+                          </p>
+                        </div>
+                        <Heart
+                          size={16}
+                          className="shrink-0 fill-red-500 text-red-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* COMMENTS TAB */}
+            {!loadingActivity && activityTab === "comments" && (
+              <>
+                {comments.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                    No comments yet.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {comments.map((c) => {
+                      const canDelete = c.user_id === userId;
+                      return (
+                        <div key={c.id} className="flex items-start gap-2.5">
+                          {c.user?.avatar_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={c.user.avatar_url}
+                              alt={displayName(c.user)}
+                              className="size-8 shrink-0 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
+                              {c.user
+                                ? displayName(c.user).charAt(0).toUpperCase()
+                                : "?"}
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1 rounded-2xl bg-slate-100 px-3 py-1.5 dark:bg-slate-800">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <p className="truncate text-xs font-semibold text-slate-900 dark:text-white">
+                                {c.user ? displayName(c.user) : "Unknown"}
+                              </p>
+                              <span className="shrink-0 text-[10px] text-slate-500 dark:text-slate-400">
+                                {relativeTime(c.created_at)}
+                              </span>
+                            </div>
+                            <p className="whitespace-pre-wrap break-words text-sm text-slate-800 dark:text-slate-100">
+                              {c.content}
+                            </p>
+                          </div>
+                          {canDelete && (
+                            <button
+                              onClick={() => void handleDeleteComment(c.id)}
+                              className="shrink-0 rounded-full p-1 text-slate-400 hover:text-red-500"
+                              aria-label="Delete comment"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <div ref={commentsEndRef} />
+                  </div>
+                )}
+
+                {/* Composer */}
+                <div className="sticky bottom-0 mt-3 border-t border-slate-200 bg-white pt-3 dark:border-slate-800 dark:bg-slate-900">
+                  <div className="flex items-center gap-2">
+                    {myProfile?.avatar_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={c.user.avatar_url}
-                        alt={displayName(c.user)}
+                        src={myProfile.avatar_url}
+                        alt="Me"
                         className="size-8 shrink-0 rounded-full object-cover"
                       />
                     ) : (
                       <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
-                        {c.user
-                          ? displayName(c.user).charAt(0).toUpperCase()
+                        {myProfile
+                          ? displayName(myProfile).charAt(0).toUpperCase()
                           : "?"}
                       </div>
                     )}
-                    <div className="min-w-0 flex-1 rounded-2xl bg-slate-100 px-3 py-1.5 dark:bg-slate-800">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <p className="truncate text-xs font-semibold text-slate-900 dark:text-white">
-                          {c.user ? displayName(c.user) : "Unknown"}
-                        </p>
-                        <span className="shrink-0 text-[10px] text-slate-500 dark:text-slate-400">
-                          {relativeTime(c.created_at)}
-                        </span>
-                      </div>
-                      <p className="whitespace-pre-wrap break-words text-sm text-slate-800 dark:text-slate-100">
-                        {c.content}
-                      </p>
-                    </div>
-                    {canDelete && (
-                      <button
-                        onClick={() => void handleDeleteComment(c.id)}
-                        className="shrink-0 rounded-full p-1 text-slate-400 hover:text-red-500"
-                        aria-label="Delete comment"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
+                    <input
+                      type="text"
+                      value={commentText}
+                      onChange={(e) => setCommentText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          void handleSendComment();
+                        }
+                      }}
+                      placeholder="Add a comment..."
+                      maxLength={500}
+                      className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                    />
+                    <button
+                      onClick={() => void handleSendComment()}
+                      disabled={posting || !commentText.trim()}
+                      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                      aria-label="Send"
+                    >
+                      {posting ? (
+                        <LoaderCircle size={16} className="animate-spin" />
+                      ) : (
+                        <Send size={16} />
+                      )}
+                    </button>
                   </div>
-                );
-              })}
-              <div ref={commentsEndRef} />
-            </div>
-          </div>
-
-          <div className="border-t border-slate-200 p-3 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-              {myProfile?.avatar_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={myProfile.avatar_url}
-                  alt="Me"
-                  className="size-8 shrink-0 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
-                  {myProfile
-                    ? displayName(myProfile).charAt(0).toUpperCase()
-                    : "?"}
                 </div>
-              )}
-              <input
-                type="text"
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void handleSendComment();
-                  }
-                }}
-                placeholder="Add a comment..."
-                maxLength={500}
-                className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-              />
-              <button
-                onClick={() => void handleSendComment()}
-                disabled={posting || !commentText.trim()}
-                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-                aria-label="Send comment"
-              >
-                {posting ? (
-                  <LoaderCircle size={16} className="animate-spin" />
-                ) : (
-                  <Send size={16} />
-                )}
-              </button>
-            </div>
+              </>
+            )}
           </div>
         </div>
       )}
