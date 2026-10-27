@@ -13,6 +13,7 @@ import {
   Send,
   LoaderCircle,
   Activity,
+  Reply,
 } from "lucide-react";
 import { useChat } from "@/lib/chat-context";
 import {
@@ -57,9 +58,10 @@ export default function StoryViewer({ group, onClose }: Props) {
   const [comments, setComments] = useState<StoryComment[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
 
-  // Comment composer
+  // Composer
   const [commentText, setCommentText] = useState("");
   const [posting, setPosting] = useState(false);
+  const [replyTo, setReplyTo] = useState<StoryComment | null>(null);
 
   // Repost
   const [replying, setReplying] = useState(false);
@@ -75,20 +77,18 @@ export default function StoryViewer({ group, onClose }: Props) {
     : null;
   const current = liveGroup?.stories[index];
 
-  // بستن اگر استوری‌ها حذف شدند
   useEffect(() => {
     if (group && !liveGroup) onClose();
   }, [group, liveGroup, onClose]);
 
-  // reset با تغییر کاربر
   useEffect(() => {
     setIndex(0);
     setProgress(0);
     setActivityOpen(false);
+    setReplyTo(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group?.user.id]);
 
-  // mark as viewed
   useEffect(() => {
     if (current && !current.viewed) {
       void viewStory(current.id);
@@ -96,11 +96,9 @@ export default function StoryViewer({ group, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id, current?.viewed]);
 
-  // progress
   useEffect(() => {
     if (!current || activityOpen) return;
     setProgress(0);
-
     if (current.media_type === "video") return;
 
     const start = Date.now();
@@ -121,10 +119,8 @@ export default function StoryViewer({ group, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id, activityOpen]);
 
-  // لود activity وقتی پنل باز شد
   useEffect(() => {
     if (!activityOpen || !current) return;
-
     let cancelled = false;
     setLoadingActivity(true);
 
@@ -145,7 +141,6 @@ export default function StoryViewer({ group, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activityOpen, current?.id]);
 
-  // اسکرول پایین وقتی کامنت جدید
   useEffect(() => {
     if (activityOpen && activityTab === "comments") {
       setTimeout(() => {
@@ -159,6 +154,7 @@ export default function StoryViewer({ group, onClose }: Props) {
     if (index < liveGroup.stories.length - 1) {
       setIndex(index + 1);
       setActivityOpen(false);
+      setReplyTo(null);
     } else {
       onClose();
     }
@@ -168,6 +164,7 @@ export default function StoryViewer({ group, onClose }: Props) {
     if (index > 0) {
       setIndex(index - 1);
       setActivityOpen(false);
+      setReplyTo(null);
     }
   };
 
@@ -176,6 +173,9 @@ export default function StoryViewer({ group, onClose }: Props) {
   const name = displayName(liveGroup.user);
   const initial = name.charAt(0).toUpperCase();
   const isMine = current.user_id === userId;
+
+  const originalAuthor = current.reposted_from_user;
+  const isReposted = !!originalAuthor;
 
   const handleVideoTime = () => {
     const v = videoRef.current;
@@ -199,7 +199,6 @@ export default function StoryViewer({ group, onClose }: Props) {
   const handleLike = async () => {
     if (!current) return;
     if (isMine) {
-      // برای استوری خودم → پنل activity
       setActivityTab("likes");
       setActivityOpen(true);
       return;
@@ -210,14 +209,8 @@ export default function StoryViewer({ group, onClose }: Props) {
   };
 
   const handleCommentsButton = () => {
-    if (isMine) {
-      // برای استوری خودم → پنل activity روی تب comments
-      setActivityTab("comments");
-      setActivityOpen(true);
-    } else {
-      setActivityTab("comments");
-      setActivityOpen(true);
-    }
+    setActivityTab("comments");
+    setActivityOpen(true);
   };
 
   const handleRepost = async () => {
@@ -235,10 +228,15 @@ export default function StoryViewer({ group, onClose }: Props) {
   const handleSendComment = async () => {
     if (!commentText.trim() || !current) return;
     setPosting(true);
-    const res = await addStoryComment(current.id, commentText);
+    const res = await addStoryComment(
+      current.id,
+      commentText,
+      replyTo?.id
+    );
     setPosting(false);
     if (res.ok) {
       setCommentText("");
+      setReplyTo(null);
       const updated = await getStoryComments(current.id);
       setComments(updated);
     }
@@ -249,7 +247,18 @@ export default function StoryViewer({ group, onClose }: Props) {
     const ok = await deleteStoryComment(commentId);
     if (ok) {
       setComments((prev) => prev.filter((c) => c.id !== commentId));
+      if (replyTo?.id === commentId) setReplyTo(null);
     }
+  };
+
+  const startReply = (comment: StoryComment) => {
+    setReplyTo(comment);
+    setTimeout(() => {
+      const input = document.querySelector<HTMLInputElement>(
+        'input[data-comment-input="true"]'
+      );
+      input?.focus();
+    }, 50);
   };
 
   return (
@@ -273,51 +282,68 @@ export default function StoryViewer({ group, onClose }: Props) {
       </div>
 
       {/* Header */}
-      <div className="absolute left-0 right-0 top-4 z-10 flex items-center justify-between px-4 pt-4">
-        <div className="flex items-center gap-2">
-          {liveGroup.user.avatar_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={liveGroup.user.avatar_url}
-              alt={name}
-              className="size-10 rounded-full object-cover ring-2 ring-white"
-            />
-          ) : (
-            <div className="flex size-10 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white ring-2 ring-white">
-              {initial}
+      <div className="absolute left-0 right-0 top-4 z-10 px-4 pt-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {liveGroup.user.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={liveGroup.user.avatar_url}
+                alt={name}
+                className="size-10 rounded-full object-cover ring-2 ring-white"
+              />
+            ) : (
+              <div className="flex size-10 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white ring-2 ring-white">
+                {initial}
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-white">
+                {name}
+              </p>
+              <p className="text-xs text-white/70">
+                {relativeTime(current.created_at)}
+              </p>
             </div>
-          )}
-          <div>
-            <p className="text-sm font-semibold text-white">{name}</p>
-            <p className="text-xs text-white/70">
-              {relativeTime(current.created_at)}
-              {current.reposted_from_user && (
-                <span className="ml-1">
-                  · reposted from {displayName(current.reposted_from_user)}
-                </span>
-              )}
-            </p>
+          </div>
+
+          <div className="flex items-center gap-1">
+            {isMine && (
+              <button
+                onClick={() => void handleDelete()}
+                className="rounded-full p-2 text-white hover:bg-white/10"
+                aria-label="Delete"
+              >
+                <Trash2 size={20} />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="rounded-full p-2 text-white hover:bg-white/10"
+              aria-label="Close"
+            >
+              <X size={24} />
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
-          {isMine && (
-            <button
-              onClick={() => void handleDelete()}
-              className="rounded-full p-2 text-white hover:bg-white/10"
-              aria-label="Delete"
-            >
-              <Trash2 size={20} />
-            </button>
-          )}
-          <button
-            onClick={onClose}
-            className="rounded-full p-2 text-white hover:bg-white/10"
-            aria-label="Close"
-          >
-            <X size={24} />
-          </button>
-        </div>
+        {/* ─── Reposted-from Badge ─── */}
+        {isReposted && originalAuthor && (
+          <div className="mt-2 flex w-fit max-w-full items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 backdrop-blur-sm">
+            <Repeat2 size={12} className="shrink-0 text-blue-400" />
+            <span className="truncate text-[11px] text-white/90">
+              Reposted from{" "}
+              <span className="font-semibold text-white">
+                {displayName(originalAuthor)}
+              </span>
+              {originalAuthor.username && (
+                <span className="ml-1 text-white/60">
+                  @{originalAuthor.username}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -345,7 +371,6 @@ export default function StoryViewer({ group, onClose }: Props) {
           </div>
         )}
 
-        {/* Tap zones */}
         <button
           onClick={goPrev}
           className="absolute left-0 top-0 z-10 flex h-full w-1/3 items-center justify-start pl-4 opacity-0 hover:opacity-100"
@@ -365,12 +390,10 @@ export default function StoryViewer({ group, onClose }: Props) {
       {/* Bottom actions */}
       {!activityOpen && (
         <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-around gap-2 bg-gradient-to-t from-black/80 to-transparent p-4 pb-6">
-          {/* Heart */}
           <button
             onClick={handleLike}
             className="flex flex-col items-center gap-1 text-white"
             aria-label={isMine ? "See who liked" : "Like"}
-            title={isMine ? "See who liked" : "Like"}
           >
             <Heart
               size={26}
@@ -389,7 +412,6 @@ export default function StoryViewer({ group, onClose }: Props) {
             <span className="text-xs">{current.like_count ?? 0}</span>
           </button>
 
-          {/* Comments */}
           <button
             onClick={handleCommentsButton}
             className="flex flex-col items-center gap-1 text-white"
@@ -399,7 +421,6 @@ export default function StoryViewer({ group, onClose }: Props) {
             <span className="text-xs">{current.comment_count ?? 0}</span>
           </button>
 
-          {/* Activity (فقط برای خودم) */}
           {isMine && (
             <button
               onClick={() => {
@@ -414,8 +435,7 @@ export default function StoryViewer({ group, onClose }: Props) {
             </button>
           )}
 
-          {/* Repost (فقط برای دیگران) */}
-          {!isMine && (
+          {!isMine && !isReposted && (
             <button
               onClick={() => void handleRepost()}
               disabled={replying}
@@ -435,8 +455,7 @@ export default function StoryViewer({ group, onClose }: Props) {
 
       {/* Activity panel */}
       {activityOpen && (
-        <div className="absolute inset-x-0 bottom-0 z-30 flex max-h-[75vh] flex-col rounded-t-2xl bg-white shadow-xl dark:bg-slate-900">
-          {/* Tabs */}
+        <div className="absolute inset-x-0 bottom-0 z-30 flex max-h-[80vh] flex-col rounded-t-2xl bg-white shadow-xl dark:bg-slate-900">
           <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
             <div className="flex flex-1 gap-1">
               <button
@@ -463,7 +482,10 @@ export default function StoryViewer({ group, onClose }: Props) {
               </button>
             </div>
             <button
-              onClick={() => setActivityOpen(false)}
+              onClick={() => {
+                setActivityOpen(false);
+                setReplyTo(null);
+              }}
               className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
               aria-label="Close"
             >
@@ -471,7 +493,6 @@ export default function StoryViewer({ group, onClose }: Props) {
             </button>
           </div>
 
-          {/* Content */}
           <div className="scrollbar-hidden flex-1 overflow-y-auto px-4 py-3">
             {loadingActivity && (
               <div className="flex justify-center py-8">
@@ -482,7 +503,6 @@ export default function StoryViewer({ group, onClose }: Props) {
               </div>
             )}
 
-            {/* LIKES TAB */}
             {!loadingActivity && activityTab === "likes" && (
               <>
                 {likers.length === 0 ? (
@@ -527,7 +547,6 @@ export default function StoryViewer({ group, onClose }: Props) {
               </>
             )}
 
-            {/* COMMENTS TAB */}
             {!loadingActivity && activityTab === "comments" && (
               <>
                 {comments.length === 0 ? (
@@ -550,32 +569,63 @@ export default function StoryViewer({ group, onClose }: Props) {
                           ) : (
                             <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
                               {c.user
-                                ? displayName(c.user).charAt(0).toUpperCase()
+                                ? displayName(c.user)
+                                    .charAt(0)
+                                    .toUpperCase()
                                 : "?"}
                             </div>
                           )}
-                          <div className="min-w-0 flex-1 rounded-2xl bg-slate-100 px-3 py-1.5 dark:bg-slate-800">
-                            <div className="flex items-baseline justify-between gap-2">
-                              <p className="truncate text-xs font-semibold text-slate-900 dark:text-white">
-                                {c.user ? displayName(c.user) : "Unknown"}
+                          <div className="min-w-0 flex-1">
+                            {c.reply_to && (
+                              <div className="mb-1 flex items-center gap-1 rounded-t-lg border-l-2 border-blue-400 bg-blue-50/50 px-2 py-1 text-[11px] dark:bg-blue-950/30">
+                                <Reply size={10} className="text-blue-500" />
+                                <span className="font-semibold text-blue-600 dark:text-blue-400">
+                                  {c.reply_to.user
+                                    ? displayName(c.reply_to.user)
+                                    : "Unknown"}
+                                </span>
+                                <span className="truncate text-slate-500 dark:text-slate-400">
+                                  {c.reply_to.content}
+                                </span>
+                              </div>
+                            )}
+                            <div className="rounded-2xl bg-slate-100 px-3 py-1.5 dark:bg-slate-800">
+                              <div className="flex items-baseline justify-between gap-2">
+                                <p className="truncate text-xs font-semibold text-slate-900 dark:text-white">
+                                  {c.user
+                                    ? displayName(c.user)
+                                    : "Unknown"}
+                                </p>
+                                <span className="shrink-0 text-[10px] text-slate-500 dark:text-slate-400">
+                                  {relativeTime(c.created_at)}
+                                </span>
+                              </div>
+                              <p className="whitespace-pre-wrap break-words text-sm text-slate-800 dark:text-slate-100">
+                                {c.content}
                               </p>
-                              <span className="shrink-0 text-[10px] text-slate-500 dark:text-slate-400">
-                                {relativeTime(c.created_at)}
-                              </span>
                             </div>
-                            <p className="whitespace-pre-wrap break-words text-sm text-slate-800 dark:text-slate-100">
-                              {c.content}
-                            </p>
                           </div>
-                          {canDelete && (
+                          <div className="flex shrink-0 flex-col gap-0.5">
                             <button
-                              onClick={() => void handleDeleteComment(c.id)}
-                              className="shrink-0 rounded-full p-1 text-slate-400 hover:text-red-500"
-                              aria-label="Delete comment"
+                              onClick={() => startReply(c)}
+                              className="rounded-full p-1 text-slate-400 hover:text-blue-500"
+                              aria-label="Reply"
+                              title="Reply"
                             >
-                              <Trash2 size={14} />
+                              <Reply size={14} />
                             </button>
-                          )}
+                            {canDelete && (
+                              <button
+                                onClick={() =>
+                                  void handleDeleteComment(c.id)
+                                }
+                                className="rounded-full p-1 text-slate-400 hover:text-red-500"
+                                aria-label="Delete comment"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -583,8 +633,29 @@ export default function StoryViewer({ group, onClose }: Props) {
                   </div>
                 )}
 
-                {/* Composer */}
                 <div className="sticky bottom-0 mt-3 border-t border-slate-200 bg-white pt-3 dark:border-slate-800 dark:bg-slate-900">
+                  {replyTo && (
+                    <div className="mb-2 flex items-center gap-2 rounded-lg border-l-2 border-blue-500 bg-blue-50 px-2 py-1.5 text-xs dark:bg-blue-950/40">
+                      <Reply size={12} className="shrink-0 text-blue-600" />
+                      <span className="font-semibold text-blue-700 dark:text-blue-300">
+                        Replying to{" "}
+                        {replyTo.user
+                          ? displayName(replyTo.user)
+                          : "Unknown"}
+                      </span>
+                      <span className="flex-1 truncate text-slate-600 dark:text-slate-400">
+                        {replyTo.content}
+                      </span>
+                      <button
+                        onClick={() => setReplyTo(null)}
+                        className="shrink-0 rounded-full p-0.5 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700"
+                        aria-label="Cancel reply"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-2">
                     {myProfile?.avatar_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -601,6 +672,7 @@ export default function StoryViewer({ group, onClose }: Props) {
                       </div>
                     )}
                     <input
+                      data-comment-input="true"
                       type="text"
                       value={commentText}
                       onChange={(e) => setCommentText(e.target.value)}
@@ -609,8 +681,19 @@ export default function StoryViewer({ group, onClose }: Props) {
                           e.preventDefault();
                           void handleSendComment();
                         }
+                        if (e.key === "Escape") {
+                          setReplyTo(null);
+                        }
                       }}
-                      placeholder="Add a comment..."
+                      placeholder={
+                        replyTo
+                          ? `Reply to ${
+                              replyTo.user
+                                ? displayName(replyTo.user)
+                                : "user"
+                            }...`
+                          : "Add a comment..."
+                      }
                       maxLength={500}
                       className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                     />

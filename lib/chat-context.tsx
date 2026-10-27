@@ -98,7 +98,11 @@ type ChatContextType = {
   toggleStoryLike: (storyId: string) => Promise<boolean>;
   getStoryLikes: (storyId: string) => Promise<Profile[]>;
   getStoryComments: (storyId: string) => Promise<StoryComment[]>;
-  addStoryComment: (storyId: string, content: string) => Promise<SimpleResult>;
+  addStoryComment: (
+    storyId: string,
+    content: string,
+    replyToId?: string
+  ) => Promise<SimpleResult>;
   deleteStoryComment: (commentId: string) => Promise<boolean>;
   repostStory: (storyId: string) => Promise<SimpleResult>;
   signOut: () => Promise<void>;
@@ -626,7 +630,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [isLogin, router, clearUserData]);
 
   // ============================================================
-  // fetch messages for active conversation
+  // fetch messages
   // ============================================================
   useEffect(() => {
     let cancelled = false;
@@ -865,7 +869,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   // ============================================================
-  // deleteMessageForMe
+  // deleteMessageForMe / Everyone
   // ============================================================
   const deleteMessageForMe = useCallback(
     async (messageId: string): Promise<boolean> => {
@@ -888,9 +892,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, loadConversations]
   );
 
-  // ============================================================
-  // deleteMessageForEveryone
-  // ============================================================
   const deleteMessageForEveryone = useCallback(
     async (messageId: string): Promise<boolean> => {
       if (!userId) return false;
@@ -1195,7 +1196,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   // ============================================================
-  // getStoryComments
+  // getStoryComments (با reply_to)
   // ============================================================
   const getStoryComments = useCallback(
     async (storyId: string): Promise<StoryComment[]> => {
@@ -1211,19 +1212,69 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           return [];
         }
 
-        const userIds = [
-          ...new Set((rows ?? []).map((r) => r.user_id as string)),
-        ];
-        const { data: profiles } = userIds.length
+        // جمع‌آوری user_idها و reply_to_idها
+        const userIds = new Set<string>();
+        const replyIds = new Set<string>();
+
+        for (const r of rows ?? []) {
+          userIds.add(r.user_id as string);
+          if (r.reply_to_id) replyIds.add(r.reply_to_id as string);
+        }
+
+        // پروفایل نویسنده‌ها
+        const { data: profiles } = userIds.size
           ? await supabase
               .from("profiles")
               .select("id, display_name, email, username, avatar_url")
-              .in("id", userIds)
+              .in("id", [...userIds])
           : { data: [] };
 
         const profileMap = new Map(
           ((profiles ?? []) as Profile[]).map((p) => [p.id, p])
         );
+
+        // گرفتن کامنت‌های والد برای reply
+        const replyMap = new Map<
+          string,
+          {
+            id: string;
+            content: string;
+            user_id: string;
+            user?: Profile | null;
+          }
+        >();
+
+        if (replyIds.size) {
+          const { data: parents } = await supabase
+            .from("story_comments")
+            .select("id, content, user_id")
+            .in("id", [...replyIds]);
+
+          // پروفایل والدها (اگر نبود)
+          const parentUserIds = [
+            ...new Set((parents ?? []).map((p) => p.user_id as string)),
+          ].filter((id) => !profileMap.has(id));
+
+          if (parentUserIds.length) {
+            const { data: moreProfiles } = await supabase
+              .from("profiles")
+              .select("id, display_name, email, username, avatar_url")
+              .in("id", parentUserIds);
+
+            for (const p of (moreProfiles ?? []) as Profile[]) {
+              profileMap.set(p.id, p);
+            }
+          }
+
+          for (const p of parents ?? []) {
+            replyMap.set(p.id as string, {
+              id: p.id as string,
+              content: p.content as string,
+              user_id: p.user_id as string,
+              user: profileMap.get(p.user_id as string) ?? null,
+            });
+          }
+        }
 
         return (rows ?? []).map((r) => ({
           id: r.id as string,
@@ -1232,6 +1283,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           content: r.content as string,
           created_at: r.created_at as string,
           user: profileMap.get(r.user_id as string) ?? null,
+          reply_to_id: (r.reply_to_id as string) || null,
+          reply_to: r.reply_to_id
+            ? replyMap.get(r.reply_to_id as string) ?? null
+            : null,
         }));
       } catch (err) {
         logSupabaseError("getStoryComments exception", err);
@@ -1242,12 +1297,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   // ============================================================
-  // addStoryComment
+  // addStoryComment (با replyToId)
   // ============================================================
   const addStoryComment = useCallback(
     async (
       storyId: string,
-      content: string
+      content: string,
+      replyToId?: string
     ): Promise<SimpleResult> => {
       if (!userId) return { ok: false, error: "Not logged in" };
       const text = content.trim();
@@ -1261,6 +1317,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             story_id: storyId,
             user_id: userId,
             content: text,
+            reply_to_id: replyToId || null,
           });
 
         if (insErr) {
@@ -1387,7 +1444,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   // ============================================================
-  // Realtime: active conversation messages
+  // Realtime: active conversation
   // ============================================================
   useEffect(() => {
     if (!userId || !activeConversation) return;
