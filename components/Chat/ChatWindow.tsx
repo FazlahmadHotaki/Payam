@@ -50,10 +50,11 @@ export default function ChatWindow({
   const name = displayName(activeConversation.otherUser);
   const initial = name.charAt(0).toUpperCase();
   const username = activeConversation.otherUser.username;
+  const avatarUrl = activeConversation.otherUser.avatar_url;
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#e6ebee] dark:bg-[#0e1621]">
-      {/* ─── HEADER ─── */}
+      {/* HEADER */}
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-2 dark:border-slate-800 dark:bg-slate-900 sm:px-4">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <button
@@ -65,9 +66,18 @@ export default function ChatWindow({
             <ArrowLeft size={20} />
           </button>
 
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white sm:size-10">
-            {initial}
-          </div>
+          {avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={avatarUrl}
+              alt={name}
+              className="size-9 shrink-0 rounded-full object-cover sm:size-10"
+            />
+          ) : (
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white sm:size-10">
+              {initial}
+            </div>
+          )}
 
           <div className="flex min-w-0 flex-col">
             <h2 className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100 sm:text-base">
@@ -101,7 +111,7 @@ export default function ChatWindow({
         </div>
       </header>
 
-      {/* ─── MESSAGE AREA با Pattern تلگرام ─── */}
+      {/* MESSAGE AREA */}
       <div className="telegram-pattern scrollbar-hidden flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 sm:p-6">
         {loadingMessages && (
           <p className="text-center text-sm text-slate-500 dark:text-slate-400">
@@ -131,7 +141,7 @@ export default function ChatWindow({
         <div ref={bottomRef} className="h-2" />
       </div>
 
-      {/* ─── INPUT ─── */}
+      {/* INPUT */}
       <div className="shrink-0">
         <MessageInput
           value={draft}

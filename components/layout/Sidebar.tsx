@@ -36,11 +36,10 @@ export default function Sidebar() {
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
-  // ← برای لغو نتایج کهنه
   const latestQueryRef = useRef("");
 
   // ============================================================
-  // جستجو
+  // Search
   // ============================================================
   useEffect(() => {
     const q = query.trim();
@@ -54,36 +53,31 @@ export default function Sidebar() {
 
     if (!myProfile?.id) return;
 
-    // درخواست جدید → نتایج قبلی را فوراً پاک کن
     latestQueryRef.current = q;
     setSearchResults([]);
     setIsSearching(true);
 
     const delayDebounce = setTimeout(async () => {
-      // اگر کاربر بین debounce دوباره تایپ کرد، این درخواست منسوخ است
       if (latestQueryRef.current !== q) return;
 
-      // فرار از کاراکترهای خاص در PostgREST
       const escaped = q.replace(/[\\%_]/g, "\\$&");
       const searchTerm = `%${escaped}%`;
 
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, display_name, email, username")
+        .select("id, display_name, email, username, avatar_url")
         .neq("id", myProfile.id)
         .or(
           `display_name.ilike.${searchTerm},username.ilike.${searchTerm},email.ilike.${searchTerm}`
         )
         .limit(20);
 
-      // ← چک نهایی: اگر query عوض شده، این نتیجه را نادیده بگیر
       if (latestQueryRef.current !== q) return;
 
       if (error) {
         console.error("Search failed:", error.message);
         setSearchResults([]);
       } else {
-        // ← فیلتر دوم سمت کلاینت (safety net)
         const lower = q.toLowerCase();
         const filtered = (data ?? []).filter((p) => {
           const haystack = [p.display_name, p.username, p.email]
@@ -102,7 +96,7 @@ export default function Sidebar() {
   }, [query, myProfile?.id]);
 
   // ============================================================
-  // مرتب‌سازی گفتگوها بر اساس جدیدترین پیام
+  // Sort conversations
   // ============================================================
   const sortedConversations = useMemo(() => {
     return [...conversations].sort((a, b) => {
@@ -112,7 +106,6 @@ export default function Sidebar() {
     });
   }, [conversations]);
 
-  // عنوان تب با جمع unread
   const totalUnread = useMemo(
     () => Object.values(unreadCounts).reduce((a, b) => a + b, 0),
     [unreadCounts]
@@ -153,14 +146,24 @@ export default function Sidebar() {
                 onClick={() => setMenuOpen(false)}
               />
               <div className="absolute left-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                {/* Account info with avatar */}
                 <div className="flex items-center gap-3 border-b border-slate-100 p-3 dark:border-slate-700">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
-                    {myProfile ? (
-                      displayName(myProfile).charAt(0).toUpperCase()
-                    ) : (
-                      <UserCircle size={20} />
-                    )}
-                  </div>
+                  {myProfile?.avatar_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={myProfile.avatar_url}
+                      alt={displayName(myProfile)}
+                      className="size-10 shrink-0 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
+                      {myProfile ? (
+                        displayName(myProfile).charAt(0).toUpperCase()
+                      ) : (
+                        <UserCircle size={20} />
+                      )}
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
                       {myProfile ? displayName(myProfile) : "Payam User"}
@@ -227,13 +230,22 @@ export default function Sidebar() {
         </div>
 
         {/* My Avatar */}
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
-          {myProfile ? displayName(myProfile).charAt(0).toUpperCase() : "?"}
-        </div>
+        {myProfile?.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={myProfile.avatar_url}
+            alt={displayName(myProfile)}
+            className="size-9 shrink-0 rounded-full object-cover"
+          />
+        ) : (
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
+            {myProfile ? displayName(myProfile).charAt(0).toUpperCase() : "?"}
+          </div>
+        )}
       </div>
 
       {/* Main List */}
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hidden">
+      <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto">
         {query.trim() ? (
           <>
             {isSearching ? (
@@ -251,9 +263,18 @@ export default function Sidebar() {
                   onClick={() => void handleStartChat(profile)}
                   className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
-                  <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-blue-100 text-lg font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                    {displayName(profile).charAt(0).toUpperCase()}
-                  </div>
+                  {profile.avatar_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={profile.avatar_url}
+                      alt={displayName(profile)}
+                      className="size-12 shrink-0 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-blue-100 text-lg font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                      {displayName(profile).charAt(0).toUpperCase()}
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
                       {displayName(profile)}
@@ -301,15 +322,24 @@ export default function Sidebar() {
                         : "hover:bg-slate-100 dark:hover:bg-slate-800"
                     }`}
                   >
-                    <div
-                      className={`flex size-12 shrink-0 items-center justify-center rounded-full text-lg font-semibold ${
-                        active
-                          ? "bg-white/20 text-white"
-                          : "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                      }`}
-                    >
-                      {displayName(c.otherUser).charAt(0).toUpperCase()}
-                    </div>
+                    {c.otherUser?.avatar_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={c.otherUser.avatar_url}
+                        alt={displayName(c.otherUser)}
+                        className="size-12 shrink-0 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div
+                        className={`flex size-12 shrink-0 items-center justify-center rounded-full text-lg font-semibold ${
+                          active
+                            ? "bg-white/20 text-white"
+                            : "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                        }`}
+                      >
+                        {displayName(c.otherUser).charAt(0).toUpperCase()}
+                      </div>
+                    )}
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-2">

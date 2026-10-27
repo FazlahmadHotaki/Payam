@@ -13,7 +13,6 @@ export default function UsernameEditor() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // وقتی myProfile از بیرون آپدیت شد (مثلاً بعد از لاگین)، فرم را هم‌گام کن
   useEffect(() => {
     setValue(myProfile?.username ?? "");
   }, [myProfile?.username]);
@@ -48,7 +47,7 @@ export default function UsernameEditor() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
       <div>
         <label
           htmlFor="username"
@@ -81,10 +80,9 @@ export default function UsernameEditor() {
 
         <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
           3–20 characters. Lowercase letters (a–z), numbers (0–9), and
-          underscore (_) only. This is how others find and mention you.
+          underscore (_) only.
         </p>
 
-        {/* نشانگر زنده‌ی اعتبار */}
         {value.trim() && (
           <div className="mt-2 flex items-center gap-1.5 text-xs">
             {isValid ? (
@@ -95,15 +93,8 @@ export default function UsernameEditor() {
             ) : (
               <>
                 <X size={14} className="text-red-500" />
-                <span className="text-red-500">
-                  Invalid format or length
-                </span>
+                <span className="text-red-500">Invalid format or length</span>
               </>
-            )}
-            {!isUnchanged && (
-              <span className="ml-2 text-slate-400">
-                → {normalized || "…"}
-              </span>
             )}
           </div>
         )}

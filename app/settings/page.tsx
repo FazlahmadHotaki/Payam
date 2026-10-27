@@ -23,9 +23,13 @@ import {
   Monitor,
   Smartphone,
   AtSign,
+  LogOut,
 } from "lucide-react";
 import { useTheme } from "@/components/layout/ThemeProvider";
+import { useChat } from "@/lib/chat-context";
+import { displayName } from "@/lib/chat";
 import UsernameEditor from "@/components/settings/UsernameEditor";
+import AvatarUploader from "@/components/settings/AvatarUploader";
 
 type SettingRowProps = {
   icon: ReactNode;
@@ -41,22 +45,20 @@ function SettingRow({
   children,
 }: SettingRowProps) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-slate-100 py-4 last:border-b-0 dark:border-slate-700">
+    <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-4 py-3.5 last:border-b-0 dark:border-slate-800">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
           {icon}
         </div>
-
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
             {title}
           </h3>
-          <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+          <p className="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">
             {description}
           </p>
         </div>
       </div>
-
       {children && <div className="shrink-0">{children}</div>}
     </div>
   );
@@ -76,7 +78,7 @@ function Toggle({ checked, onChange, label }: ToggleProps) {
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800 ${
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
         checked ? "bg-blue-600" : "bg-slate-300 dark:bg-slate-600"
       }`}
     >
@@ -91,6 +93,7 @@ function Toggle({ checked, onChange, label }: ToggleProps) {
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
+  const { myProfile, signOut } = useChat();
 
   const [messageNotifications, setMessageNotifications] = useState(true);
   const [soundNotifications, setSoundNotifications] = useState(true);
@@ -102,6 +105,12 @@ export default function SettingsPage() {
   const [fontSize, setFontSize] = useState("medium");
   const [savedMessage, setSavedMessage] = useState("");
 
+  const fontSizes = {
+    small: "text-xs",
+    medium: "text-sm",
+    large: "text-base",
+  } as const;
+
   function showSavedMessage(message: string) {
     setSavedMessage(message);
     window.setTimeout(() => setSavedMessage(""), 2500);
@@ -110,153 +119,121 @@ export default function SettingsPage() {
   function changeTheme(nextTheme: "light" | "dark") {
     setTheme(nextTheme);
     showSavedMessage(
-      nextTheme === "dark" ? "Dark mode enabled" : "Light mode enabled",
+      nextTheme === "dark" ? "Dark mode enabled" : "Light mode enabled"
     );
   }
 
-  const fontSizes = {
-    small: "text-xs",
-    medium: "text-sm",
-    large: "text-base",
-  };
+  const displayNameStr = myProfile ? displayName(myProfile) : "Payam User";
+  const username = myProfile?.username || "username";
+  const email = myProfile?.email || "";
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-6 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-4xl">
-        {/* Header */}
-        <header className="mb-8 flex items-center gap-4">
+    <main className="min-h-full overflow-y-auto bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <div className="mx-auto max-w-2xl">
+        {/* Sticky header */}
+        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white/80 px-3 py-3 backdrop-blur-lg dark:border-slate-800 dark:bg-slate-900/80">
           <Link
             href="/"
             aria-label="Back to chats"
-            className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={20} />
           </Link>
-
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-              Settings
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Customize your Telechat experience
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold">Settings</h1>
+            <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+              Manage your Payam account
             </p>
           </div>
         </header>
 
-        {/* Saved notification */}
-        {savedMessage && (
-          <div
-            role="status"
-            className="mb-5 flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300"
-          >
-            <Check size={18} />
-            {savedMessage}
-          </div>
-        )}
+        <div className="space-y-6 px-3 pb-16 pt-4 sm:px-4">
+          {savedMessage && (
+            <div
+              role="status"
+              className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300"
+            >
+              <Check size={18} />
+              {savedMessage}
+            </div>
+          )}
 
-        <div className="space-y-6">
-          {/* Appearance */}
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
-            <div className="mb-3 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400">
-                <Palette size={22} />
-              </div>
-
-              <div>
-                <h2 className="font-bold">Appearance</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Personalize how Telechat looks
+          {/* Profile Card */}
+          <div className="flex flex-col items-center gap-3 rounded-2xl bg-white p-6 text-center shadow-sm dark:bg-slate-900">
+            <AvatarUploader />
+            <div className="min-w-0">
+              <h2 className="truncate text-xl font-bold text-slate-900 dark:text-white">
+                {displayNameStr}
+              </h2>
+              <p className="mt-0.5 text-sm font-medium text-blue-500 dark:text-blue-400">
+                @{username}
+              </p>
+              {email && (
+                <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
+                  {email}
                 </p>
-              </div>
+              )}
+            </div>
+          </div>
+
+          {/* Account */}
+          <section className="overflow-hidden rounded-2xl bg-white shadow-sm dark:bg-slate-900">
+            <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                <UserRound size={16} /> Account
+              </h2>
             </div>
 
-            <SettingRow
-              icon={
-                theme === "dark" ? (
-                  <Moon size={20} />
-                ) : (
-                  <Sun size={20} />
-                )
-              }
-              title="Theme mode"
-              description="Choose light or dark appearance"
-            >
-              <div className="flex items-center rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
-                <button
-                  type="button"
-                  onClick={() => changeTheme("light")}
-                  aria-pressed={theme === "light"}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                    theme === "light"
-                      ? "bg-white text-amber-600 shadow-sm dark:bg-slate-700 dark:text-amber-400"
-                      : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white"
-                  }`}
-                >
-                  <Sun size={15} />
-                  Light
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => changeTheme("dark")}
-                  aria-pressed={theme === "dark"}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                    theme === "dark"
-                      ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-400"
-                      : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white"
-                  }`}
-                >
-                  <Moon size={15} />
-                  Dark
-                </button>
+            <div className="border-b border-slate-100 px-4 py-4 dark:border-slate-800">
+              <div className="mb-3 flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  <AtSign size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold">Username</h3>
+                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                    Change how others find and mention you
+                  </p>
+                </div>
               </div>
-            </SettingRow>
+              <UsernameEditor />
+            </div>
+
+            <Link
+              href="/contacts"
+              className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5 transition hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/60"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  <UserRound size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold">Contacts</h3>
+                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                    View and manage your contacts
+                  </p>
+                </div>
+              </div>
+              <ChevronRight size={18} className="text-slate-400" />
+            </Link>
 
             <SettingRow
-              icon={<Monitor size={20} />}
-              title="Font size"
-              description="Adjust the size of chat text"
+              icon={<LockKeyhole size={20} />}
+              title="Account security"
+              description="Keep your account safe and secure"
             >
-              <select
-                value={fontSize}
-                onChange={(event) => {
-                  setFontSize(event.target.value);
-                  showSavedMessage("Font preview updated");
-                }}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-800"
-              >
-                <option value="small">Small</option>
-                <option value="medium">Medium</option>
-                <option value="large">Large</option>
-              </select>
+              <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700 dark:bg-green-950 dark:text-green-300">
+                Protected
+              </span>
             </SettingRow>
-
-            <div className="mt-4 rounded-xl bg-slate-50 p-4 dark:bg-slate-800">
-              <p className="mb-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                MESSAGE PREVIEW
-              </p>
-              <p
-                className={`${fontSizes[fontSize as keyof typeof fontSizes]} leading-6 text-slate-700 dark:text-slate-200`}
-              >
-                Hello! Welcome to Telechat. This is a preview of your message
-                text.
-              </p>
-            </div>
           </section>
 
           {/* Notifications */}
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
-            <div className="mb-3 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400">
-                <Bell size={22} />
-              </div>
-
-              <div>
-                <h2 className="font-bold">Notifications</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Control how you receive alerts
-                </p>
-              </div>
+          <section className="overflow-hidden rounded-2xl bg-white shadow-sm dark:bg-slate-900">
+            <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                <Bell size={16} /> Notifications
+              </h2>
             </div>
 
             <SettingRow
@@ -272,7 +249,9 @@ export default function SettingsPage() {
             </SettingRow>
 
             <SettingRow
-              icon={soundNotifications ? <Volume2 size={20} /> : <VolumeX size={20} />}
+              icon={
+                soundNotifications ? <Volume2 size={20} /> : <VolumeX size={20} />
+              }
               title="Notification sounds"
               description="Play a sound when you receive a message"
             >
@@ -285,11 +264,7 @@ export default function SettingsPage() {
 
             <SettingRow
               icon={
-                desktopNotifications ? (
-                  <Bell size={20} />
-                ) : (
-                  <BellOff size={20} />
-                )
+                desktopNotifications ? <Bell size={20} /> : <BellOff size={20} />
               }
               title="Desktop notifications"
               description="Allow notifications on your computer"
@@ -303,18 +278,11 @@ export default function SettingsPage() {
           </section>
 
           {/* Privacy */}
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
-            <div className="mb-3 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400">
-                <ShieldCheck size={22} />
-              </div>
-
-              <div>
-                <h2 className="font-bold">Privacy</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Manage your visibility and privacy
-                </p>
-              </div>
+          <section className="overflow-hidden rounded-2xl bg-white shadow-sm dark:bg-slate-900">
+            <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                <ShieldCheck size={16} /> Privacy
+              </h2>
             </div>
 
             <SettingRow
@@ -354,96 +322,125 @@ export default function SettingsPage() {
             </SettingRow>
           </section>
 
-          {/* Account */}
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
-            <div className="mb-3 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
-                <UserRound size={22} />
-              </div>
+          {/* Appearance */}
+          <section className="overflow-hidden rounded-2xl bg-white shadow-sm dark:bg-slate-900">
+            <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                <Palette size={16} /> Appearance
+              </h2>
+            </div>
 
-              <div>
-                <h2 className="font-bold">Account</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Manage your profile and account
+            <SettingRow
+              icon={theme === "dark" ? <Moon size={20} /> : <Sun size={20} />}
+              title="Theme mode"
+              description="Choose light or dark appearance"
+            >
+              <div className="flex items-center rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+                <button
+                  type="button"
+                  onClick={() => changeTheme("light")}
+                  aria-pressed={theme === "light"}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    theme === "light"
+                      ? "bg-white text-amber-600 shadow-sm dark:bg-slate-700 dark:text-amber-400"
+                      : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white"
+                  }`}
+                >
+                  <Sun size={14} />
+                  Light
+                </button>
+                <button
+                  type="button"
+                  onClick={() => changeTheme("dark")}
+                  aria-pressed={theme === "dark"}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    theme === "dark"
+                      ? "bg-white text-blue-600 shadow-sm dark:bg-slate-700 dark:text-blue-400"
+                      : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white"
+                  }`}
+                >
+                  <Moon size={14} />
+                  Dark
+                </button>
+              </div>
+            </SettingRow>
+
+            <SettingRow
+              icon={<Monitor size={20} />}
+              title="Font size"
+              description="Adjust the size of chat text"
+            >
+              <select
+                value={fontSize}
+                onChange={(event) => {
+                  setFontSize(event.target.value);
+                  showSavedMessage("Font preview updated");
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-800"
+              >
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large">Large</option>
+              </select>
+            </SettingRow>
+
+            <div className="p-4">
+              <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800">
+                <p className="mb-1 text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                  Message preview
+                </p>
+                <p
+                  className={`${
+                    fontSizes[fontSize as keyof typeof fontSizes]
+                  } leading-6 text-slate-700 dark:text-slate-200`}
+                >
+                  Hello! Welcome to Payam. This is a preview of your message
+                  text.
                 </p>
               </div>
             </div>
+          </section>
 
-            {/* ✅ جدید: ویرایش username */}
-            <div className="border-b border-slate-100 py-4 dark:border-slate-700">
-              <div className="mb-3 flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
-                  <AtSign size={20} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold">Username</h3>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Change how others find and mention you
-                  </p>
-                </div>
-              </div>
-              <div className="pl-13">
-                <UsernameEditor />
-              </div>
+          {/* About */}
+          <section className="overflow-hidden rounded-2xl bg-white shadow-sm dark:bg-slate-900">
+            <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                <Smartphone size={16} /> About
+              </h2>
             </div>
 
             <Link
-              href="/contacts"
-              className="flex items-center justify-between gap-3 border-b border-slate-100 py-4 transition hover:opacity-75 dark:border-slate-700"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
-                  <UserRound size={20} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold">Contacts</h3>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    View and manage your contacts
-                  </p>
-                </div>
-              </div>
-              <ChevronRight
-                size={18}
-                className="text-slate-400"
-              />
-            </Link>
-
-            <SettingRow
-              icon={<LockKeyhole size={20} />}
-              title="Account security"
-              description="Keep your account safe and secure"
-            >
-              <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700 dark:bg-green-950 dark:text-green-300">
-                Protected
-              </span>
-            </SettingRow>
-
-            <Link
               href="/about"
-              className="flex items-center justify-between gap-3 py-4 transition hover:opacity-75"
+              className="flex items-center justify-between gap-3 px-4 py-3.5 transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
             >
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                   <Smartphone size={20} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold">About Telechat</h3>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  <h3 className="text-sm font-semibold">About Payam</h3>
+                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                     App information and details
                   </p>
                 </div>
               </div>
-              <ChevronRight
-                size={18}
-                className="text-slate-400"
-              />
+              <ChevronRight size={18} className="text-slate-400" />
             </Link>
           </section>
 
-          {/* Footer */}
-          <footer className="pb-6 pt-2 text-center">
-            <p className="text-xs text-slate-400 dark:text-slate-500">
-              Telechat · Settings
+          {/* Sign out */}
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3.5 text-sm font-semibold text-red-600 shadow-sm transition hover:bg-red-50 dark:bg-slate-900 dark:text-red-400 dark:hover:bg-red-950/40"
+          >
+            <LogOut size={18} />
+            Sign out
+          </button>
+
+          <footer className="pb-4 pt-2 text-center">
+            <p className="text-xs text-slate-400 dark:text-slate-600">
+              Payam · Settings
             </p>
           </footer>
         </div>

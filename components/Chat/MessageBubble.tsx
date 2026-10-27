@@ -9,6 +9,7 @@ import {
   MoreVertical,
   Copy,
   Trash2,
+  FileText,
 } from "lucide-react";
 import type { Message } from "@/lib/chat";
 import { useChat } from "@/lib/chat-context";
@@ -18,21 +19,57 @@ type Props = {
   mine: boolean;
 };
 
+const PREFIX_IMAGE = "[IMAGE]";
+const PREFIX_VIDEO = "[VIDEO]";
+const PREFIX_AUDIO = "[AUDIO]";
+const PREFIX_FILE = "[FILE]";
+
+function fileExt(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+function fileAccent(ext: string): string {
+  if (ext === "pdf") return "text-red-500";
+  if (["doc", "docx", "txt", "rtf", "odt"].includes(ext)) return "text-blue-500";
+  if (["xls", "xlsx", "csv", "ods"].includes(ext)) return "text-green-600";
+  if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return "text-amber-500";
+  if (["ppt", "pptx", "odp"].includes(ext)) return "text-orange-500";
+  return "text-slate-500";
+}
+
 export default function MessageBubble({ message, mine }: Props) {
   const { deleteMessageForMe, deleteMessageForEveryone } = useChat();
 
   const [menu, setMenu] = useState<{ top: number; left: number } | null>(null);
 
-  const isImage = message.content.startsWith("[IMAGE]");
-  const isVideo = message.content.startsWith("[VIDEO]");
-  const isAudio = message.content.startsWith("[AUDIO]");
+  const isImage = message.content.startsWith(PREFIX_IMAGE);
+  const isVideo = message.content.startsWith(PREFIX_VIDEO);
+  const isAudio = message.content.startsWith(PREFIX_AUDIO);
+  const isFile = message.content.startsWith(PREFIX_FILE);
 
   let mediaUrl = "";
-  if (isImage || isVideo || isAudio) {
-    mediaUrl = message.content.substring(7).trim();
+  if (isImage) mediaUrl = message.content.slice(PREFIX_IMAGE.length).trim();
+  else if (isVideo) mediaUrl = message.content.slice(PREFIX_VIDEO.length).trim();
+  else if (isAudio) mediaUrl = message.content.slice(PREFIX_AUDIO.length).trim();
+
+  // فایل: [FILE]filename|url
+  let fileName = "";
+  let fileUrl = "";
+  if (isFile) {
+    const rest = message.content.slice(PREFIX_FILE.length);
+    const pipeIdx = rest.indexOf("|");
+    if (pipeIdx >= 0) {
+      fileName = rest.slice(0, pipeIdx).trim();
+      fileUrl = rest.slice(pipeIdx + 1).trim();
+    } else {
+      fileUrl = rest.trim();
+      fileName = fileUrl.split("/").pop()?.split("?")[0] || "file";
+    }
   }
 
-  const hasMedia = isImage || isVideo || isAudio;
+  const hasMedia = isImage || isVideo || isAudio || isFile;
+  const ext = isFile ? fileExt(fileName) : "";
 
   // Close menu on Escape / scroll
   useEffect(() => {
@@ -97,22 +134,31 @@ export default function MessageBubble({ message, mine }: Props) {
 
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!mediaUrl) return;
+    const url = isFile ? fileUrl : mediaUrl;
+    if (!url) return;
     try {
-      const response = await fetch(mediaUrl);
+      const response = await fetch(url);
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      const objectUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      const ext = isImage ? "jpg" : isVideo ? "mp4" : "webm";
-      a.download = `Payam-${Date.now()}.${ext}`;
+      a.href = objectUrl;
+
+      let downloadName: string;
+      if (isFile) {
+        downloadName = fileName || `Payam-${Date.now()}.${ext || "bin"}`;
+      } else {
+        const ex = isImage ? "jpg" : isVideo ? "mp4" : "webm";
+        downloadName = `Payam-${Date.now()}.${ex}`;
+      }
+      a.download = downloadName;
+
       document.body.appendChild(a);
       a.click();
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(objectUrl);
       document.body.removeChild(a);
     } catch (err) {
       console.error("Download failed:", err);
-      window.open(mediaUrl, "_blank");
+      window.open(url, "_blank");
     }
   };
 
@@ -142,6 +188,7 @@ export default function MessageBubble({ message, mine }: Props) {
               : "rounded-bl-none bg-white text-slate-900 dark:bg-[#182533] dark:text-white"
           }`}
         >
+          {/* IMAGE */}
           {isImage && (
             <div className="group relative overflow-hidden rounded-lg">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -167,6 +214,7 @@ export default function MessageBubble({ message, mine }: Props) {
             </div>
           )}
 
+          {/* VIDEO */}
           {isVideo && (
             <div className="group relative overflow-hidden rounded-lg">
               <video
@@ -184,6 +232,7 @@ export default function MessageBubble({ message, mine }: Props) {
             </div>
           )}
 
+          {/* AUDIO */}
           {isAudio && (
             <div className="flex items-center gap-2 px-2 py-1">
               <div
@@ -214,19 +263,50 @@ export default function MessageBubble({ message, mine }: Props) {
             </div>
           )}
 
+          {/* FILE (PDF, DOCX, ZIP, XLSX, ...) */}
+          {isFile && (
+            <div className="flex w-64 max-w-full items-center gap-2.5 px-1 py-1">
+              <div
+                className={`flex size-11 shrink-0 items-center justify-center rounded-lg bg-white/70 dark:bg-slate-700/60 ${fileAccent(
+                  ext
+                )}`}
+              >
+                <FileText size={22} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{fileName}</p>
+                <p className="text-xs uppercase opacity-70">{ext || "file"}</p>
+              </div>
+              <button
+                onClick={handleDownload}
+                className={`shrink-0 rounded-full p-2 transition ${
+                  mine
+                    ? "text-emerald-700 hover:bg-emerald-200/50 dark:text-white dark:hover:bg-slate-700"
+                    : "text-blue-500 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-slate-700"
+                }`}
+                title="Download file"
+                aria-label="Download file"
+              >
+                <Download size={18} />
+              </button>
+            </div>
+          )}
+
+          {/* TEXT */}
           {!hasMedia && (
             <p className="whitespace-pre-wrap break-words px-2 pt-1 text-[15px] leading-snug">
               {message.content}
             </p>
           )}
 
+          {/* Timestamp & status */}
           <div
             className={`mt-1 flex items-center justify-end gap-1 px-1 pb-0.5 text-[11px] ${
               mine
                 ? "text-emerald-600 dark:text-blue-200"
                 : "text-slate-400 dark:text-slate-500"
             } ${
-              hasMedia
+              hasMedia && !isFile
                 ? "absolute bottom-2 right-2 rounded-md bg-black/40 px-1.5 py-0.5 text-white backdrop-blur-sm"
                 : ""
             }`}

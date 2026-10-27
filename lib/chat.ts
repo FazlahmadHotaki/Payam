@@ -5,6 +5,7 @@ export type Profile = {
   display_name: string | null;
   email: string | null;
   username?: string | null;
+  avatar_url?: string | null;   // ← جدید
 };
 
 export type Message = {
@@ -14,7 +15,7 @@ export type Message = {
   content: string;
   created_at: string;
 
-  // ← جدید: soft delete (برای «Delete for everyone»)
+  // soft delete (برای «Delete for everyone»)
   deleted_at?: string | null;
   deleted_by?: string | null;
 };
@@ -28,7 +29,7 @@ export type Conversation = {
   lastMessage?: string | null;
   lastMessageSenderId?: string | null;
 
-  // legacy (قبلاً استفاده می‌شد؛ حالا معمولاً null است)
+  // legacy
   updatedAt?: string;
 };
 

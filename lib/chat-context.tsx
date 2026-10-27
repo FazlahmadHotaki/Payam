@@ -35,6 +35,7 @@ function sortByRecency(list: Conversation[]): Conversation[] {
 }
 
 type UpdateUsernameResult = { ok: boolean; error?: string };
+type UpdateAvatarResult = { ok: boolean; error?: string; url?: string };
 
 type ChatContextType = {
   userId: string;
@@ -57,6 +58,7 @@ type ChatContextType = {
   clearActive: () => void;
   markAsRead: (conversationId: string) => Promise<void>;
   updateUsername: (newUsername: string) => Promise<UpdateUsernameResult>;
+  updateAvatar: (file: File) => Promise<UpdateAvatarResult>;
   deleteMessageForMe: (messageId: string) => Promise<boolean>;
   deleteMessageForEveryone: (messageId: string) => Promise<boolean>;
   signOut: () => Promise<void>;
@@ -108,53 +110,75 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setError("");
   }, []);
 
-  // ============================================================
-  // unread counts
-  // ============================================================
+  /* ─── unread counts ─── */
   const computeUnreadCounts = useCallback(async (uid: string) => {
-    const { data: memberships, error: mErr } = await supabase
-      .from("conversation_members")
-      .select("conversation_id, last_read_at")
-      .eq("user_id", uid);
+    try {
+      const { data: memberships, error: mErr } = await supabase
+        .from("conversation_members")
+        .select("conversation_id, last_read_at")
+        .eq("user_id", uid);
 
-    if (mErr) {
-      console.error("computeUnreadCounts:", mErr.message);
-      return;
-    }
-
-    const rows = memberships ?? [];
-    if (rows.length === 0) {
-      setUnreadCounts({});
-      return;
-    }
-
-    const counts: Record<string, number> = {};
-    for (const row of rows) {
-      const convId = row.conversation_id as string;
-      const lastRead = row.last_read_at as string;
-
-      const { count, error: cErr } = await supabase
-        .from("messages")
-        .select("id", { count: "exact", head: true })
-        .eq("conversation_id", convId)
-        .neq("sender_id", uid)
-        .is("deleted_at", null)
-        .gt("created_at", lastRead);
-
-      if (cErr) {
-        console.error("count unread:", cErr.message);
-        continue;
+      if (mErr) {
+        console.error("computeUnreadCounts failed:", {
+          message: mErr.message,
+          code: mErr.code,
+          details: mErr.details,
+        });
+        return;
       }
-      counts[convId] = count ?? 0;
-    }
 
-    setUnreadCounts(counts);
+      const rows = memberships ?? [];
+      if (rows.length === 0) {
+        setUnreadCounts({});
+        return;
+      }
+
+      const counts: Record<string, number> = {};
+
+      for (const row of rows) {
+        const convId = row.conversation_id as string;
+        const lastRead = (row.last_read_at as string) || "1970-01-01";
+
+        let result = await supabase
+          .from("messages")
+          .select("id", { count: "exact", head: true })
+          .eq("conversation_id", convId)
+          .neq("sender_id", uid)
+          .is("deleted_at", null)
+          .gt("created_at", lastRead);
+
+        if (result.error) {
+          result = await supabase
+            .from("messages")
+            .select("id", { count: "exact", head: true })
+            .eq("conversation_id", convId)
+            .neq("sender_id", uid)
+            .gt("created_at", lastRead);
+        }
+
+        if (result.error) {
+          console.error("count unread failed:", {
+            message: result.error.message,
+            code: result.error.code,
+            convId,
+          });
+          continue;
+        }
+
+        counts[convId] = result.count ?? 0;
+      }
+
+      setUnreadCounts(counts);
+    } catch (err) {
+      console.error("computeUnreadCounts exception:", err);
+    }
   }, []);
 
+  /* ─── load contacts ─── */
   const loadContacts = useCallback(async (uid: string) => {
     const { data, error: contactsError } = await supabase
       .from("profiles")
-      .select("id, display_name, email, username")
+      .select("id, display_name, email, username, avatar_url")
       .neq("id", uid)
       .order("display_name");
 
@@ -164,6 +188,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setContacts((data ?? []) as Profile[]);
   }, []);
 
+  /* ─── load conversations ─── */
   const loadConversations = useCallback(
     async (uid: string) => {
       const { data: memberships, error: membershipError } = await supabase
@@ -212,7 +237,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const { data: profileRows, error: profilesError } = otherUserIds.length
         ? await supabase
             .from("profiles")
-            .select("id, display_name, email, username")
+            .select("id, display_name, email, username, avatar_url")
             .in("id", otherUserIds)
         : { data: [], error: null };
 
@@ -234,7 +259,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         );
       }
 
-      // آخرین پیام‌های غیرحذف‌شده
       const { data: latestMessages } = await supabase
         .from("messages")
         .select("id, conversation_id, content, created_at, sender_id")
@@ -242,7 +266,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .is("deleted_at", null)
         .order("created_at", { ascending: false });
 
-      // حذف‌های شخصی من
       const { data: myDeletions } = await supabase
         .from("message_deletions")
         .select("message_id")
@@ -308,9 +331,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [computeUnreadCounts]
   );
 
-  // ============================================================
-  // Initialize
-  // ============================================================
+  /* ─── initialize ─── */
   useEffect(() => {
     let cancelled = false;
 
@@ -338,7 +359,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
-          .select("id, display_name, email, username")
+          .select("id, display_name, email, username, avatar_url")
           .eq("id", uid)
           .maybeSingle();
 
@@ -356,6 +377,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             display_name: user.user_metadata?.display_name ?? "Payam User",
             email: user.email ?? null,
             username: "user",
+            avatar_url: null,
           }
         );
 
@@ -386,7 +408,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [isLogin, router, clearUserData, loadContacts, loadConversations]);
 
-  // sign-out
+  /* sign-out */
   useEffect(() => {
     if (isLogin) return;
     const {
@@ -400,7 +422,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, [isLogin, router, clearUserData]);
 
-  // پیام‌های گفتگوی فعال
+  /* ─── fetch messages for active conversation ─── */
   useEffect(() => {
     let cancelled = false;
 
@@ -425,14 +447,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           throw new Error(`Loading messages failed: ${messagesError.message}`);
         }
 
-        const { data: myDeletions, error: delErr } = await supabase
+        const { data: myDeletions } = await supabase
           .from("message_deletions")
           .select("message_id")
           .eq("user_id", userId);
-
-        if (delErr) {
-          console.warn("Loading deletions failed:", delErr.message);
-        }
 
         const deletedIds = new Set(
           (myDeletions ?? []).map((d) => d.message_id as string)
@@ -457,7 +475,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, activeConversation]);
 
-  // markAsRead
+  /* ─── markAsRead ─── */
   const markAsRead = useCallback(
     async (conversationId: string) => {
       if (!userId) return;
@@ -479,7 +497,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId]
   );
 
-  // openConversation
+  /* ─── openConversation ─── */
   const openConversation = useCallback(
     async (contact: Profile): Promise<void> => {
       if (!userId) {
@@ -570,7 +588,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, router, loadConversations, markAsRead]
   );
 
-  // sendMessage
+  /* ─── sendMessage ─── */
   const sendMessage = useCallback(
     async (content: string): Promise<boolean> => {
       const text = content.trim();
@@ -628,9 +646,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, activeConversation, sending]
   );
 
-  // ============================================================
-  // Delete: only for me
-  // ============================================================
+  /* ─── deleteMessageForMe ─── */
   const deleteMessageForMe = useCallback(
     async (messageId: string): Promise<boolean> => {
       if (!userId) return false;
@@ -642,8 +658,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (insErr) throw insErr;
 
         setMessages((prev) => prev.filter((m) => m.id !== messageId));
-
-        // reload conversations to update sidebar preview if needed
         if (userId) void loadConversations(userId);
         return true;
       } catch (err) {
@@ -654,9 +668,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, loadConversations]
   );
 
-  // ============================================================
-  // Delete: for everyone (soft delete)
-  // ============================================================
+  /* ─── deleteMessageForEveryone ─── */
   const deleteMessageForEveryone = useCallback(
     async (messageId: string): Promise<boolean> => {
       if (!userId) return false;
@@ -673,7 +685,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (updErr) throw updErr;
 
         setMessages((prev) => prev.filter((m) => m.id !== messageId));
-
         if (userId) void loadConversations(userId);
         return true;
       } catch (err) {
@@ -684,9 +695,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId, loadConversations]
   );
 
-  // ============================================================
-  // Realtime: messages in the active conversation
-  // ============================================================
+  /* ─── Realtime: active conversation messages ─── */
   useEffect(() => {
     if (!userId || !activeConversation) return;
     const conversationId = activeConversation.id;
@@ -702,7 +711,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           filter: `conversation_id=eq.${conversationId}`,
         },
         (payload) => {
-          // UPDATE
           if (payload.eventType === "UPDATE") {
             const updated = payload.new as Message & {
               deleted_at?: string | null;
@@ -718,7 +726,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          // DELETE
           if (payload.eventType === "DELETE") {
             const deletedId = (payload.old as { id?: string }).id;
             if (deletedId) {
@@ -728,7 +735,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          // INSERT
           const newMessage = payload.new as Message;
           setMessages((cur) => {
             if (cur.some((m) => m.id === newMessage.id)) return cur;
@@ -766,7 +772,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, activeConversation, markAsRead, loadConversations]);
 
-  // Realtime: membership
+  /* ─── Realtime: membership ─── */
   useEffect(() => {
     if (!userId) return;
 
@@ -789,7 +795,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, loadConversations]);
 
-  // Realtime: all messages (sidebar)
+  /* ─── Realtime: all messages (sidebar) ─── */
   useEffect(() => {
     if (!userId) return;
 
@@ -799,14 +805,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         "postgres_changes",
         { event: "*", schema: "public", table: "messages" },
         (payload) => {
-          // UPDATE (soft-delete)
           if (payload.eventType === "UPDATE") {
             const updated = payload.new as Message & {
               deleted_at?: string | null;
             };
-            if (updated.deleted_at) {
-              void loadConversations(userId);
-            }
+            if (updated.deleted_at) void loadConversations(userId);
             return;
           }
 
@@ -815,7 +818,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          // INSERT
           const newMessage = payload.new as Message;
           if (newMessage.sender_id === userId) return;
 
@@ -861,7 +863,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, loadConversations]);
 
-  // updateUsername
+  /* ─── updateUsername ─── */
   const updateUsername = useCallback(
     async (raw: string): Promise<UpdateUsernameResult> => {
       if (!userId) return { ok: false, error: "Not logged in" };
@@ -926,6 +928,80 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [userId]
   );
 
+  /* ─── updateAvatar ─── */
+  const updateAvatar = useCallback(
+    async (file: File): Promise<UpdateAvatarResult> => {
+      if (!userId) return { ok: false, error: "Not logged in" };
+
+      if (!file.type.startsWith("image/")) {
+        return { ok: false, error: "Please select an image file." };
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        return { ok: false, error: "Image must be smaller than 5 MB." };
+      }
+
+      try {
+        const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+        const safeExt = ["jpg", "jpeg", "png", "webp", "gif"].includes(ext)
+          ? ext
+          : "jpg";
+        const fileName = `${userId}/avatar-${Date.now()}.${safeExt}`;
+
+        // حذف عکس قبلی
+        if (myProfile?.avatar_url) {
+          const oldPath = myProfile.avatar_url.split("/avatars/")[1];
+          if (oldPath) {
+            await supabase.storage.from("avatars").remove([oldPath]);
+          }
+        }
+
+        const { error: upErr } = await supabase.storage
+          .from("avatars")
+          .upload(fileName, file, {
+            cacheControl: "3600",
+            upsert: true,
+            contentType: file.type,
+          });
+
+        if (upErr) throw upErr;
+
+        const { data: urlData } = supabase.storage
+          .from("avatars")
+          .getPublicUrl(fileName);
+
+        const publicUrl = urlData.publicUrl;
+
+        const { error: updErr } = await supabase
+          .from("profiles")
+          .update({ avatar_url: publicUrl })
+          .eq("id", userId);
+
+        if (updErr) throw updErr;
+
+        setMyProfile((prev) =>
+          prev ? { ...prev, avatar_url: publicUrl } : prev
+        );
+        setContacts((prev) =>
+          prev.map((c) =>
+            c.id === userId ? { ...c, avatar_url: publicUrl } : c
+          )
+        );
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.otherUser?.id === userId
+              ? { ...c, otherUser: { ...c.otherUser, avatar_url: publicUrl } }
+              : c
+          )
+        );
+
+        return { ok: true, url: publicUrl };
+      } catch (err) {
+        return { ok: false, error: getErrorMessage(err) };
+      }
+    },
+    [userId, myProfile?.avatar_url]
+  );
+
   const signOut = useCallback(async () => {
     setError("");
     const { error: signOutError } = await supabase.auth.signOut();
@@ -959,6 +1035,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     clearActive,
     markAsRead,
     updateUsername,
+    updateAvatar,
     deleteMessageForMe,
     deleteMessageForEveryone,
     signOut,
