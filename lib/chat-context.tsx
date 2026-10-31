@@ -1,3 +1,4 @@
+// lib/chat-context.tsx
 "use client";
 
 import {
@@ -106,6 +107,23 @@ type ChatContextType = {
   deleteStoryComment: (commentId: string) => Promise<boolean>;
   repostStory: (storyId: string) => Promise<SimpleResult>;
   signOut: () => Promise<void>;
+
+  // ─── Global story viewer + user info panel ───
+  viewingStoryGroup: StoryGroup | null;
+  viewingStoryIsActive: boolean;
+  viewingStoryIndex: number;
+  viewingStoryVersion: number;
+  openStory: (userId: string, startIndex?: number) => void;
+  openStoryGroup: (
+    group: StoryGroup,
+    isActive: boolean,
+    startIndex?: number
+  ) => void;
+  closeStory: () => void;
+  getUserStories: (targetUserId: string) => Promise<{
+    active: StoryGroup | null;
+    archived: StoryGroup | null;
+  }>;
 };
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -130,6 +148,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
+  // ─── Global story viewer state ───
+  const [viewingStoryGroup, setViewingStoryGroup] =
+    useState<StoryGroup | null>(null);
+  const [viewingStoryIsActive, setViewingStoryIsActive] = useState(true);
+  const [viewingStoryIndex, setViewingStoryIndex] = useState(0);
+  const [viewingStoryVersion, setViewingStoryVersion] = useState(0);
+
   const conversationsRef = useRef<Conversation[]>([]);
   useEffect(() => {
     conversationsRef.current = conversations;
@@ -149,6 +174,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setActiveConversation(null);
     setUnreadCounts({});
     setStories([]);
+    setViewingStoryGroup(null);
+    setViewingStoryIsActive(true);
+    setViewingStoryIndex(0);
   }, []);
 
   const clearActive = useCallback(() => {
@@ -156,6 +184,46 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages([]);
     setError("");
   }, []);
+
+  // ─── Global story viewer: open / close ───
+  const openStory = useCallback(
+    (uid: string, startIndex = 0) => {
+      const group = stories.find((g) => g.user.id === uid);
+      if (!group) return;
+      setViewingStoryGroup(group);
+      setViewingStoryIsActive(true);
+      setViewingStoryIndex(startIndex);
+      setViewingStoryVersion((v) => v + 1);
+    },
+    [stories]
+  );
+
+  const openStoryGroup = useCallback(
+    (group: StoryGroup, isActive: boolean, startIndex = 0) => {
+      setViewingStoryGroup(group);
+      setViewingStoryIsActive(isActive);
+      setViewingStoryIndex(startIndex);
+      setViewingStoryVersion((v) => v + 1);
+    },
+    []
+  );
+
+  const closeStory = useCallback(() => {
+    setViewingStoryGroup(null);
+    setViewingStoryIndex(0);
+  }, []);
+
+  // Keep ACTIVE story groups synced when likes/comments/repost change them.
+  // Never close here — the viewer may be showing an archived group.
+  useEffect(() => {
+    if (!viewingStoryGroup || !viewingStoryIsActive) return;
+    const fresh = stories.find(
+      (g) => g.user.id === viewingStoryGroup.user.id
+    );
+    if (fresh && fresh !== viewingStoryGroup) {
+      setViewingStoryGroup(fresh);
+    }
+  }, [stories, viewingStoryGroup, viewingStoryIsActive]);
 
   // ============================================================
   // unread counts
@@ -529,6 +597,133 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setLoadingStories(false);
     }
   }, [userId]);
+
+  // ============================================================
+  // getUserStories (active + archived, for the info panel)
+  // ============================================================
+  const getUserStories = useCallback(
+    async (
+      targetUserId: string
+    ): Promise<{ active: StoryGroup | null; archived: StoryGroup | null }> => {
+      try {
+        const { data: rows, error: err } = await supabase
+          .from("stories")
+          .select("*")
+          .eq("user_id", targetUserId)
+          .order("created_at", { ascending: true });
+
+        if (err) {
+          logSupabaseError("getUserStories rows", err);
+          return { active: null, archived: null };
+        }
+        if (!rows?.length) return { active: null, archived: null };
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("id, display_name, email, username, avatar_url")
+          .eq("id", targetUserId)
+          .maybeSingle();
+
+        if (!profile) return { active: null, archived: null };
+
+        const storyIds = rows.map((r) => r.id as string);
+
+        const { data: myViews } = await supabase
+          .from("story_views")
+          .select("story_id")
+          .eq("viewer_id", userId);
+        const viewedSet = new Set(
+          (myViews ?? []).map((v) => v.story_id as string)
+        );
+
+        const { data: likes } = await supabase
+          .from("story_likes")
+          .select("story_id, user_id")
+          .in("story_id", storyIds);
+        const likeCounts = new Map<string, number>();
+        const likedByMe = new Set<string>();
+        for (const l of likes ?? []) {
+          const sid = l.story_id as string;
+          likeCounts.set(sid, (likeCounts.get(sid) ?? 0) + 1);
+          if (l.user_id === userId) likedByMe.add(sid);
+        }
+
+        const { data: comments } = await supabase
+          .from("story_comments")
+          .select("story_id")
+          .in("story_id", storyIds);
+        const commentCounts = new Map<string, number>();
+        for (const c of comments ?? []) {
+          const sid = c.story_id as string;
+          commentCounts.set(sid, (commentCounts.get(sid) ?? 0) + 1);
+        }
+
+        const repostedFromIds = [
+          ...new Set(
+            rows
+              .map((s) => s.reposted_from_user_id as string | null)
+              .filter((x): x is string => !!x)
+          ),
+        ];
+        const { data: repostedProfiles } = repostedFromIds.length
+          ? await supabase
+              .from("profiles")
+              .select("id, display_name, email, username, avatar_url")
+              .in("id", repostedFromIds)
+          : { data: [] };
+        const repostedProfileMap = new Map(
+          ((repostedProfiles ?? []) as Profile[]).map((p) => [p.id, p])
+        );
+
+        const buildGroup = (list: typeof rows): StoryGroup | null => {
+          if (!list.length) return null;
+          const stories = list.map((s) => ({
+            id: s.id as string,
+            user_id: s.user_id as string,
+            media_url: s.media_url as string,
+            media_type: s.media_type as "image" | "video",
+            caption: (s.caption as string) || null,
+            created_at: s.created_at as string,
+            expires_at: s.expires_at as string,
+            user: profile as Profile,
+            viewed: viewedSet.has(s.id as string),
+            like_count: likeCounts.get(s.id as string) ?? 0,
+            comment_count: commentCounts.get(s.id as string) ?? 0,
+            liked_by_me: likedByMe.has(s.id as string),
+            reposted_from_story_id:
+              (s.reposted_from_story_id as string) || null,
+            reposted_from_user_id:
+              (s.reposted_from_user_id as string) || null,
+            reposted_from_user:
+              repostedProfileMap.get(s.reposted_from_user_id as string) ??
+              null,
+          }));
+          return {
+            user: profile as Profile,
+            stories,
+            allViewed: stories.every((s) => s.viewed),
+          };
+        };
+
+        const now = Date.now();
+        const activeRows = rows.filter(
+          (r) => new Date(r.expires_at as string).getTime() > now
+        );
+        const archivedRows = rows.filter(
+          (r) => new Date(r.expires_at as string).getTime() <= now
+        );
+
+        return {
+          active: buildGroup(activeRows),
+          archived: buildGroup(archivedRows),
+        };
+      } catch (err) {
+        logSupabaseError("getUserStories exception", err);
+        return { active: null, archived: null };
+      }
+    },
+    [userId]
+  );
 
   // ============================================================
   // Initialize
@@ -1212,7 +1407,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           return [];
         }
 
-        // جمع‌آوری user_idها و reply_to_idها
         const userIds = new Set<string>();
         const replyIds = new Set<string>();
 
@@ -1221,7 +1415,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           if (r.reply_to_id) replyIds.add(r.reply_to_id as string);
         }
 
-        // پروفایل نویسنده‌ها
         const { data: profiles } = userIds.size
           ? await supabase
               .from("profiles")
@@ -1233,7 +1426,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           ((profiles ?? []) as Profile[]).map((p) => [p.id, p])
         );
 
-        // گرفتن کامنت‌های والد برای reply
         const replyMap = new Map<
           string,
           {
@@ -1250,7 +1442,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             .select("id, content, user_id")
             .in("id", [...replyIds]);
 
-          // پروفایل والدها (اگر نبود)
           const parentUserIds = [
             ...new Set((parents ?? []).map((p) => p.user_id as string)),
           ].filter((id) => !profileMap.has(id));
@@ -1822,6 +2013,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     deleteStoryComment,
     repostStory,
     signOut,
+    // ─── Global story viewer + user info panel ───
+    viewingStoryGroup,
+    viewingStoryIsActive,
+    viewingStoryIndex,
+    viewingStoryVersion,
+    openStory,
+    openStoryGroup,
+    closeStory,
+    getUserStories,
   };
 
   return (

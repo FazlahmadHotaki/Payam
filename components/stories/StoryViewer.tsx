@@ -26,10 +26,15 @@ import {
 
 type Props = {
   group: StoryGroup | null;
+  initialIndex?: number;
   onClose: () => void;
 };
 
-export default function StoryViewer({ group, onClose }: Props) {
+export default function StoryViewer({
+  group,
+  initialIndex = 0,
+  onClose,
+}: Props) {
   const {
     stories,
     viewStory,
@@ -44,7 +49,7 @@ export default function StoryViewer({ group, onClose }: Props) {
     myProfile,
   } = useChat();
 
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(initialIndex);
   const [progress, setProgress] = useState(0);
 
   // Panels
@@ -63,7 +68,7 @@ export default function StoryViewer({ group, onClose }: Props) {
   const [posting, setPosting] = useState(false);
   const [replyTo, setReplyTo] = useState<StoryComment | null>(null);
 
-  // Repost
+  // Repost + like animation
   const [replying, setReplying] = useState(false);
   const [likeAnim, setLikeAnim] = useState(false);
 
@@ -71,24 +76,18 @@ export default function StoryViewer({ group, onClose }: Props) {
   const timerRef = useRef<number | null>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
-  // live data از context
+  // Live group / current story (kept in sync with context)
   const liveGroup = group
     ? stories.find((g) => g.user.id === group.user.id) ?? group
     : null;
   const current = liveGroup?.stories[index];
 
+  // ─── Close if the group disappears ───
   useEffect(() => {
     if (group && !liveGroup) onClose();
   }, [group, liveGroup, onClose]);
 
-  useEffect(() => {
-    setIndex(0);
-    setProgress(0);
-    setActivityOpen(false);
-    setReplyTo(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [group?.user.id]);
-
+  // ─── Mark story as viewed ───
   useEffect(() => {
     if (current && !current.viewed) {
       void viewStory(current.id);
@@ -96,6 +95,7 @@ export default function StoryViewer({ group, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id, current?.viewed]);
 
+  // ─── Auto-advance timer for images (5s) ───
   useEffect(() => {
     if (!current || activityOpen) return;
     setProgress(0);
@@ -119,6 +119,7 @@ export default function StoryViewer({ group, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id, activityOpen]);
 
+  // ─── Load likes + comments when panel opens ───
   useEffect(() => {
     if (!activityOpen || !current) return;
     let cancelled = false;
@@ -141,6 +142,7 @@ export default function StoryViewer({ group, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activityOpen, current?.id]);
 
+  // ─── Scroll to bottom of comments ───
   useEffect(() => {
     if (activityOpen && activityTab === "comments") {
       setTimeout(() => {
@@ -149,6 +151,7 @@ export default function StoryViewer({ group, onClose }: Props) {
     }
   }, [activityTab, comments.length, activityOpen]);
 
+  // ─── Navigation ───
   const goNext = () => {
     if (!liveGroup) return;
     if (index < liveGroup.stories.length - 1) {
@@ -228,11 +231,7 @@ export default function StoryViewer({ group, onClose }: Props) {
   const handleSendComment = async () => {
     if (!commentText.trim() || !current) return;
     setPosting(true);
-    const res = await addStoryComment(
-      current.id,
-      commentText,
-      replyTo?.id
-    );
+    const res = await addStoryComment(current.id, commentText, replyTo?.id);
     setPosting(false);
     if (res.ok) {
       setCommentText("");
@@ -263,7 +262,7 @@ export default function StoryViewer({ group, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black">
-      {/* Progress bars */}
+      {/* ─── Progress bars ─── */}
       <div className="absolute left-0 right-0 top-0 z-10 flex gap-1 p-2">
         {liveGroup.stories.map((s, i) => (
           <div
@@ -281,7 +280,7 @@ export default function StoryViewer({ group, onClose }: Props) {
         ))}
       </div>
 
-      {/* Header */}
+      {/* ─── Header ─── */}
       <div className="absolute left-0 right-0 top-4 z-10 px-4 pt-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -327,7 +326,7 @@ export default function StoryViewer({ group, onClose }: Props) {
           </div>
         </div>
 
-        {/* ─── Reposted-from Badge ─── */}
+        {/* Reposted-from badge */}
         {isReposted && originalAuthor && (
           <div className="mt-2 flex w-fit max-w-full items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 backdrop-blur-sm">
             <Repeat2 size={12} className="shrink-0 text-blue-400" />
@@ -346,7 +345,7 @@ export default function StoryViewer({ group, onClose }: Props) {
         )}
       </div>
 
-      {/* Content */}
+      {/* ─── Content ─── */}
       <div className="relative flex h-full w-full max-w-lg items-center justify-center">
         {current.media_type === "video" ? (
           <video
@@ -387,7 +386,7 @@ export default function StoryViewer({ group, onClose }: Props) {
         </button>
       </div>
 
-      {/* Bottom actions */}
+      {/* ─── Bottom actions ─── */}
       {!activityOpen && (
         <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-around gap-2 bg-gradient-to-t from-black/80 to-transparent p-4 pb-6">
           <button
@@ -453,7 +452,7 @@ export default function StoryViewer({ group, onClose }: Props) {
         </div>
       )}
 
-      {/* Activity panel */}
+      {/* ─── Activity panel ─── */}
       {activityOpen && (
         <div className="absolute inset-x-0 bottom-0 z-30 flex max-h-[80vh] flex-col rounded-t-2xl bg-white shadow-xl dark:bg-slate-900">
           <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
@@ -503,6 +502,7 @@ export default function StoryViewer({ group, onClose }: Props) {
               </div>
             )}
 
+            {/* Likes tab */}
             {!loadingActivity && activityTab === "likes" && (
               <>
                 {likers.length === 0 ? (
@@ -547,6 +547,7 @@ export default function StoryViewer({ group, onClose }: Props) {
               </>
             )}
 
+            {/* Comments tab */}
             {!loadingActivity && activityTab === "comments" && (
               <>
                 {comments.length === 0 ? (
@@ -569,9 +570,7 @@ export default function StoryViewer({ group, onClose }: Props) {
                           ) : (
                             <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
                               {c.user
-                                ? displayName(c.user)
-                                    .charAt(0)
-                                    .toUpperCase()
+                                ? displayName(c.user).charAt(0).toUpperCase()
                                 : "?"}
                             </div>
                           )}
@@ -592,9 +591,7 @@ export default function StoryViewer({ group, onClose }: Props) {
                             <div className="rounded-2xl bg-slate-100 px-3 py-1.5 dark:bg-slate-800">
                               <div className="flex items-baseline justify-between gap-2">
                                 <p className="truncate text-xs font-semibold text-slate-900 dark:text-white">
-                                  {c.user
-                                    ? displayName(c.user)
-                                    : "Unknown"}
+                                  {c.user ? displayName(c.user) : "Unknown"}
                                 </p>
                                 <span className="shrink-0 text-[10px] text-slate-500 dark:text-slate-400">
                                   {relativeTime(c.created_at)}
@@ -616,9 +613,7 @@ export default function StoryViewer({ group, onClose }: Props) {
                             </button>
                             {canDelete && (
                               <button
-                                onClick={() =>
-                                  void handleDeleteComment(c.id)
-                                }
+                                onClick={() => void handleDeleteComment(c.id)}
                                 className="rounded-full p-1 text-slate-400 hover:text-red-500"
                                 aria-label="Delete comment"
                               >
@@ -633,6 +628,7 @@ export default function StoryViewer({ group, onClose }: Props) {
                   </div>
                 )}
 
+                {/* Composer */}
                 <div className="sticky bottom-0 mt-3 border-t border-slate-200 bg-white pt-3 dark:border-slate-800 dark:bg-slate-900">
                   {replyTo && (
                     <div className="mb-2 flex items-center gap-2 rounded-lg border-l-2 border-blue-500 bg-blue-50 px-2 py-1.5 text-xs dark:bg-blue-950/40">

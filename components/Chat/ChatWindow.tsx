@@ -1,4 +1,4 @@
-// components/chat/ChatWindow.tsx
+// components/Chat/ChatWindow.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import MessageBubble from "@/components/Chat/MessageBubble";
 import MessageInput from "@/components/Chat/MessageInput";
+import StoryAvatar from "@/components/stories/StoryAvatar";
+import UserInfoPanel from "@/components/Chat/UserInfoPanel";
 import { displayName, type Conversation, type Message } from "@/lib/chat";
 import { useChat } from "@/lib/chat-context";
 
@@ -51,6 +53,8 @@ export default function ChatWindow({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const [infoOpen, setInfoOpen] = useState(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -94,6 +98,7 @@ export default function ChatWindow({
     setMenuOpen(false);
     setSearchOpen(false);
     setSearchQuery("");
+    setInfoOpen(false);
   }, [activeConversation?.id]);
 
   const filteredMessages = useMemo(() => {
@@ -130,36 +135,51 @@ export default function ChatWindow({
   }
 
   const name = displayName(activeConversation.otherUser);
-  const initial = name.charAt(0).toUpperCase();
   const username = activeConversation.otherUser.username;
-  const avatarUrl = activeConversation.otherUser.avatar_url;
+  const otherUser = activeConversation.otherUser;
+
+  const openInfo = () => setInfoOpen(true);
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-100 dark:bg-[#0e1621]">
-      {/* HEADER */}
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-2 dark:border-slate-800 dark:bg-slate-900 sm:px-4">
+      {/* HEADER — whole bar opens user info */}
+      <header
+        onClick={openInfo}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            if (e.target === e.currentTarget) {
+              e.preventDefault();
+              openInfo();
+            }
+          }
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${name}'s profile info`}
+        className="flex h-14 shrink-0 cursor-pointer items-center justify-between border-b border-slate-200 bg-white px-2 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800/60 sm:px-4"
+      >
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <button
             type="button"
-            onClick={onBack}
+            onClick={(e) => {
+              e.stopPropagation();
+              onBack();
+            }}
             className="shrink-0 rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 md:hidden"
             aria-label="Back"
           >
             <ArrowLeft size={20} />
           </button>
 
-          {avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={avatarUrl}
-              alt={name}
-              className="size-9 shrink-0 rounded-full object-cover sm:size-10"
-            />
-          ) : (
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white sm:size-10">
-              {initial}
-            </div>
-          )}
+          <StoryAvatar
+            userId={otherUser.id}
+            avatarUrl={otherUser.avatar_url}
+            name={name}
+            size={40}
+            ringWidth={2}
+            onStoryClick={openInfo}
+            onClick={openInfo}
+          />
 
           <div className="flex min-w-0 flex-col">
             <h2 className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100 sm:text-base">
@@ -171,7 +191,10 @@ export default function ChatWindow({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 text-slate-500 dark:text-slate-400 sm:gap-2">
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="flex shrink-0 items-center gap-1 text-slate-500 dark:text-slate-400 sm:gap-2"
+        >
           <button
             type="button"
             onClick={() => {
@@ -189,6 +212,8 @@ export default function ChatWindow({
           </button>
 
           <button
+            type="button"
+            onClick={(e) => e.stopPropagation()}
             className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800"
             aria-label="Call"
             title="Voice call (coming soon)"
@@ -255,7 +280,7 @@ export default function ChatWindow({
         </div>
       )}
 
-      {/* MESSAGE AREA — dark mode کاملاً پشتیبانی می‌شود */}
+      {/* MESSAGE AREA */}
       <div
         className="scrollbar-hidden relative flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-slate-100 p-3 dark:bg-[#0e1621] sm:p-6"
         style={{
@@ -309,6 +334,13 @@ export default function ChatWindow({
           sending={sending}
         />
       </div>
+
+      {/* User info drawer */}
+      <UserInfoPanel
+        user={otherUser}
+        open={infoOpen}
+        onClose={() => setInfoOpen(false)}
+      />
     </div>
   );
 }

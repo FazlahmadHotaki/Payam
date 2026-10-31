@@ -12,7 +12,6 @@ import {
   FileText,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
-import Image from "next/image";
 
 type Props = {
   value: string;

@@ -4,22 +4,21 @@
 import { useState } from "react";
 import { Plus, LoaderCircle, Repeat2 } from "lucide-react";
 import { useChat } from "@/lib/chat-context";
-import { displayName, type StoryGroup } from "@/lib/chat";
+import { displayName } from "@/lib/chat";
 import StoryCreator from "@/components/stories/StoryCreator";
-import StoryViewer from "@/components/stories/StoryViewer";
 
 export default function StoriesBar() {
-  const { stories, myProfile, loadingStories, userId } = useChat();
+  const { stories, myProfile, loadingStories, userId, openStory } = useChat();
   const [creatorOpen, setCreatorOpen] = useState(false);
-  const [viewing, setViewing] = useState<StoryGroup | null>(null);
 
   const myStory = stories.find((g) => g.user.id === userId);
 
   return (
     <>
       <div className="scrollbar-hidden flex shrink-0 items-center gap-3 overflow-x-auto border-b border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
-        {/* Add story */}
+        {/* + Your story */}
         <button
+          type="button"
           onClick={() => setCreatorOpen(true)}
           className="flex shrink-0 flex-col items-center gap-1"
         >
@@ -53,18 +52,17 @@ export default function StoriesBar() {
           </div>
         )}
 
-        {/* Other stories */}
+        {/* Other users' stories */}
         {stories
           .filter((g) => g.user.id !== userId)
           .map((group) => {
-            // آیا آخرین story این کاربر، repost است؟
             const last = group.stories[group.stories.length - 1];
             const isReposted = !!last?.reposted_from_user;
-
             return (
               <button
                 key={group.user.id}
-                onClick={() => setViewing(group)}
+                type="button"
+                onClick={() => openStory(group.user.id)}
                 className="flex shrink-0 flex-col items-center gap-1"
               >
                 <div
@@ -86,8 +84,6 @@ export default function StoriesBar() {
                       {displayName(group.user).charAt(0).toUpperCase()}
                     </div>
                   )}
-
-                  {/* بج repost */}
                   {isReposted && (
                     <div className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full border-2 border-white bg-blue-600 dark:border-slate-900">
                       <Repeat2 size={10} className="text-white" />
@@ -101,10 +97,11 @@ export default function StoriesBar() {
             );
           })}
 
-        {/* My stories */}
+        {/* My own story */}
         {myStory && (
           <button
-            onClick={() => setViewing(myStory)}
+            type="button"
+            onClick={() => openStory(userId)}
             className="flex shrink-0 flex-col items-center gap-1"
           >
             <div className="flex size-14 items-center justify-center rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-[2px]">
@@ -131,7 +128,6 @@ export default function StoriesBar() {
       </div>
 
       <StoryCreator open={creatorOpen} onClose={() => setCreatorOpen(false)} />
-      <StoryViewer group={viewing} onClose={() => setViewing(null)} />
     </>
   );
 }

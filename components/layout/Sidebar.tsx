@@ -12,12 +12,15 @@ import {
   LogOut,
   UserCircle,
   LoaderCircle,
+  ChevronRight,
+  Flame,
 } from "lucide-react";
 import { displayName, relativeTime } from "@/lib/chat";
 import { useChat } from "@/lib/chat-context";
 import { supabase } from "@/lib/supabase/client";
 import type { Profile, Conversation } from "@/lib/chat";
 import StoriesBar from "@/components/stories/StoriesBar";
+import StoryAvatar from "@/components/stories/StoryAvatar";
 
 export default function Sidebar() {
   const {
@@ -39,9 +42,25 @@ export default function Sidebar() {
 
   const latestQueryRef = useRef("");
 
-  // ============================================================
+  // Drawer: ESC + body lock
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [menuOpen]);
+
   // Search
-  // ============================================================
   useEffect(() => {
     const q = query.trim();
 
@@ -96,9 +115,6 @@ export default function Sidebar() {
     return () => clearTimeout(delayDebounce);
   }, [query, myProfile?.id]);
 
-  // ============================================================
-  // Sort conversations
-  // ============================================================
   const sortedConversations = useMemo(() => {
     return [...conversations].sort((a, b) => {
       const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
@@ -111,6 +127,7 @@ export default function Sidebar() {
     () => Object.values(unreadCounts).reduce((a, b) => a + b, 0),
     [unreadCounts]
   );
+
   useEffect(() => {
     if (typeof document === "undefined") return;
     document.title = totalUnread > 0 ? `(${totalUnread}) Payam` : "Payam";
@@ -130,84 +147,15 @@ export default function Sidebar() {
     <aside className="relative flex h-full w-full flex-col bg-white dark:bg-slate-900">
       {/* Top Bar */}
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 px-3 dark:border-slate-800">
-        {/* Hamburger Menu */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setMenuOpen((v) => !v)}
-            className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-          >
-            <Menu size={20} />
-          </button>
+        <button
+          type="button"
+          onClick={() => setMenuOpen(true)}
+          aria-label="Open menu"
+          className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+        >
+          <Menu size={20} />
+        </button>
 
-          {menuOpen && (
-            <>
-              <div
-                className="fixed inset-0 z-40 cursor-default"
-                onClick={() => setMenuOpen(false)}
-              />
-              <div className="absolute left-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
-                {/* Account info with avatar */}
-                <div className="flex items-center gap-3 border-b border-slate-100 p-3 dark:border-slate-700">
-                  {myProfile?.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={myProfile.avatar_url}
-                      alt={displayName(myProfile)}
-                      className="size-10 shrink-0 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
-                      {myProfile ? (
-                        displayName(myProfile).charAt(0).toUpperCase()
-                      ) : (
-                        <UserCircle size={20} />
-                      )}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">
-                      {myProfile ? displayName(myProfile) : "Payam User"}
-                    </p>
-                    <p className="truncate text-xs text-slate-500">
-                      @{myProfile?.username || "username"}
-                    </p>
-                  </div>
-                </div>
-                <div className="py-1">
-                  <Link
-                    href="/contacts"
-                    onClick={() => setMenuOpen(false)}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
-                  >
-                    <Users size={18} className="text-slate-400" /> Contacts
-                  </Link>
-                  <Link
-                    href="/settings"
-                    onClick={() => setMenuOpen(false)}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
-                  >
-                    <Settings size={18} className="text-slate-400" /> Settings
-                  </Link>
-                </div>
-                <div className="border-t border-slate-100 py-1 dark:border-slate-700">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      void signOut();
-                    }}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
-                  >
-                    <LogOut size={18} /> Sign Out
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Search Bar */}
         <div className="relative flex-1">
           <Search
             size={16}
@@ -230,7 +178,6 @@ export default function Sidebar() {
           )}
         </div>
 
-        {/* My Avatar */}
         {myProfile?.avatar_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -245,7 +192,7 @@ export default function Sidebar() {
         )}
       </div>
 
-      {/* ─── Stories Bar (جدید) ─── */}
+      {/* Stories Bar */}
       <StoriesBar />
 
       {/* Main List */}
@@ -262,23 +209,27 @@ export default function Sidebar() {
               </p>
             ) : (
               searchResults.map((profile) => (
-                <button
+                <div
                   key={profile.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => void handleStartChat(profile)}
-                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      void handleStartChat(profile);
+                    }
+                  }}
+                  className="flex w-full cursor-pointer items-center gap-3 px-3 py-2.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
-                  {profile.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={profile.avatar_url}
-                      alt={displayName(profile)}
-                      className="size-12 shrink-0 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-blue-100 text-lg font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                      {displayName(profile).charAt(0).toUpperCase()}
-                    </div>
-                  )}
+                  <StoryAvatar
+                    userId={profile.id}
+                    avatarUrl={profile.avatar_url}
+                    name={displayName(profile)}
+                    size={48}
+                    ringWidth={2}
+                    onClick={() => void handleStartChat(profile)}
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
                       {displayName(profile)}
@@ -287,7 +238,7 @@ export default function Sidebar() {
                       @{profile.username || "no_username"}
                     </p>
                   </div>
-                </button>
+                </div>
               ))
             )}
           </>
@@ -315,10 +266,18 @@ export default function Sidebar() {
                   : c.otherUser?.email ?? "";
 
                 return (
-                  <button
+                  <div
                     key={c.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => void handleSelectConversation(c)}
-                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        void handleSelectConversation(c);
+                      }
+                    }}
+                    className={`flex w-full cursor-pointer items-center gap-3 px-3 py-2.5 text-left transition ${
                       active
                         ? "bg-[#3390ec] text-white"
                         : unread > 0
@@ -326,23 +285,15 @@ export default function Sidebar() {
                         : "hover:bg-slate-100 dark:hover:bg-slate-800"
                     }`}
                   >
-                    {c.otherUser?.avatar_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={c.otherUser.avatar_url}
-                        alt={displayName(c.otherUser)}
-                        className="size-12 shrink-0 rounded-full object-cover"
+                    {c.otherUser && (
+                      <StoryAvatar
+                        userId={c.otherUser.id}
+                        avatarUrl={c.otherUser.avatar_url}
+                        name={displayName(c.otherUser)}
+                        size={48}
+                        ringWidth={2}
+                        onClick={() => void handleSelectConversation(c)}
                       />
-                    ) : (
-                      <div
-                        className={`flex size-12 shrink-0 items-center justify-center rounded-full text-lg font-semibold ${
-                          active
-                            ? "bg-white/20 text-white"
-                            : "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                        }`}
-                      >
-                        {displayName(c.otherUser).charAt(0).toUpperCase()}
-                      </div>
                     )}
 
                     <div className="min-w-0 flex-1">
@@ -389,12 +340,126 @@ export default function Sidebar() {
                         )}
                       </div>
                     </div>
-                  </button>
+                  </div>
                 );
               })
             )}
           </>
         )}
+      </div>
+
+      {/* Telegram-style drawer */}
+      <div
+        className={`fixed inset-0 z-50 ${menuOpen ? "" : "pointer-events-none"}`}
+        role="dialog"
+        aria-modal="true"
+        aria-hidden={!menuOpen}
+      >
+        <div
+          onClick={() => setMenuOpen(false)}
+          className={`absolute inset-0 bg-black/40 transition-opacity duration-300 ${
+            menuOpen ? "opacity-100" : "opacity-0"
+          }`}
+        />
+
+        <div
+          className={`absolute inset-y-0 left-0 flex w-[86%] max-w-[340px] flex-col bg-white shadow-2xl transition-transform duration-300 ease-out dark:bg-slate-900 ${
+            menuOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          <div className="relative shrink-0 bg-[#3390ec] px-4 pb-5 pt-5 text-white dark:bg-slate-800">
+            <button
+              type="button"
+              onClick={() => setMenuOpen(false)}
+              aria-label="Close menu"
+              className="absolute right-2 top-2 rounded-full p-2 text-white/80 transition hover:bg-white/10 hover:text-white"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="flex items-center gap-3 pr-8">
+              {myProfile?.avatar_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={myProfile.avatar_url}
+                  alt={displayName(myProfile)}
+                  className="size-14 shrink-0 rounded-full object-cover ring-2 ring-white/30"
+                />
+              ) : (
+                <div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-white/20 text-xl font-semibold">
+                  {myProfile ? (
+                    displayName(myProfile).charAt(0).toUpperCase()
+                  ) : (
+                    <UserCircle size={24} />
+                  )}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-base font-semibold">
+                  {myProfile ? displayName(myProfile) : "Payam User"}
+                </p>
+                <p className="truncate text-xs text-white/80">
+                  @{myProfile?.username || "username"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <nav className="min-h-0 flex-1 overflow-y-auto py-2">
+            <Link
+              href="/stories"
+              onClick={() => setMenuOpen(false)}
+              className="flex w-full items-center gap-4 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <Flame size={20} className="text-slate-400" />
+              <span className="flex-1">Stories</span>
+              <ChevronRight
+                size={16}
+                className="text-slate-300 dark:text-slate-600"
+              />
+            </Link>
+
+            <Link
+              href="/contacts"
+              onClick={() => setMenuOpen(false)}
+              className="flex w-full items-center gap-4 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <Users size={20} className="text-slate-400" />
+              <span className="flex-1">Contacts</span>
+              <ChevronRight
+                size={16}
+                className="text-slate-300 dark:text-slate-600"
+              />
+            </Link>
+
+            <Link
+              href="/settings"
+              onClick={() => setMenuOpen(false)}
+              className="flex w-full items-center gap-4 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <Settings size={20} className="text-slate-400" />
+              <span className="flex-1">Settings</span>
+              <ChevronRight
+                size={16}
+                className="text-slate-300 dark:text-slate-600"
+              />
+            </Link>
+          </nav>
+
+          <div className="border-t border-slate-200 p-2 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                void signOut();
+              }}
+              className="flex w-full items-center gap-4 rounded-lg px-3 py-3 text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+            >
+              <LogOut size={20} />
+              Sign Out
+            </button>
+          </div>
+        </div>
       </div>
     </aside>
   );

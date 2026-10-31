@@ -2,119 +2,106 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Camera, LoaderCircle, User } from "lucide-react";
+import { Camera, LoaderCircle } from "lucide-react";
 import { useChat } from "@/lib/chat-context";
 import { displayName } from "@/lib/chat";
 
 export default function AvatarUploader() {
   const { myProfile, updateAvatar } = useChat();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
-  const [preview, setPreview] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
-  const avatarUrl = preview ?? myProfile?.avatar_url ?? null;
-  const initial = myProfile
-    ? displayName(myProfile).charAt(0).toUpperCase()
-    : "?";
+  const name = myProfile ? displayName(myProfile) : "Payam User";
+  const initial = name.charAt(0).toUpperCase();
 
-  const handleClick = () => fileInputRef.current?.click();
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
 
-  const handleFile = async (file: File) => {
     setError("");
+    setSuccess(false);
     setUploading(true);
 
-    // پیش‌نمایش فوری
-    const reader = new FileReader();
-    reader.onload = (e) => setPreview(e.target?.result as string);
-    reader.readAsDataURL(file);
+    const res = await updateAvatar(file);
 
-    const result = await updateAvatar(file);
     setUploading(false);
 
-    if (!result.ok) {
-      setError(result.error ?? "Upload failed");
-      setPreview(null);
-    } else {
-      setPreview(null); // myProfile از context آپدیت شده
+    if (!res.ok) {
+      setError(res.error || "Upload failed. Please try again.");
+      return;
     }
-  };
 
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) void handleFile(file);
-    e.target.value = ""; // reset
-  };
-
-  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files?.[0];
-    if (file) void handleFile(file);
+    setSuccess(true);
+    setTimeout(() => setSuccess(false), 2000);
   };
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <div
-        className="group relative cursor-pointer"
-        onClick={handleClick}
-        onDrop={onDrop}
-        onDragOver={(e) => e.preventDefault()}
-      >
-        {avatarUrl ? (
+      {/* Avatar + camera button */}
+      <div className="relative">
+        {myProfile?.avatar_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={avatarUrl}
-            alt="Profile avatar"
-            className="h-24 w-24 rounded-full object-cover shadow-md"
+            src={myProfile.avatar_url}
+            alt={name}
+            className="size-24 rounded-full object-cover ring-4 ring-blue-500/10"
           />
         ) : (
-          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-4xl font-bold text-white shadow-md">
+          <div className="flex size-24 items-center justify-center rounded-full bg-blue-600 text-3xl font-semibold text-white ring-4 ring-blue-500/10">
             {initial}
           </div>
         )}
 
-        {/* Overlay */}
-        <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition group-hover:opacity-100">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          aria-label="Change avatar"
+          title="Change avatar"
+          className="absolute -bottom-1 -right-1 flex size-8 items-center justify-center rounded-full border-2 border-white bg-blue-600 text-white shadow-md transition hover:bg-blue-700 disabled:opacity-60 dark:border-slate-900"
+        >
           {uploading ? (
-            <LoaderCircle size={28} className="animate-spin text-white" />
+            <LoaderCircle size={16} className="animate-spin" />
           ) : (
-            <Camera size={28} className="text-white" />
+            <Camera size={16} />
           )}
-        </div>
+        </button>
 
-        {/* Loading overlay during upload */}
-        {uploading && (
-          <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50">
-            <LoaderCircle size={28} className="animate-spin text-white" />
-          </div>
-        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFile}
+        />
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={onFileChange}
-      />
+      {/* Name + username */}
+      <div className="text-center">
+        <p className="text-sm font-medium text-slate-900 dark:text-white">
+          {name}
+        </p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          @{myProfile?.username || "username"}
+        </p>
+      </div>
 
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={uploading}
-        className="text-xs font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50 dark:text-blue-400"
-      >
-        {uploading ? "Uploading..." : avatarUrl ? "Change photo" : "Upload photo"}
-      </button>
-
+      {/* Feedback */}
       {error && (
-        <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+        <p className="text-xs text-red-500" role="alert">
+          {error}
+        </p>
       )}
-
-      <p className="text-[11px] text-slate-400 dark:text-slate-500">
-        JPG, PNG, WebP or GIF · max 5 MB
-      </p>
+      {success && (
+        <p className="text-xs text-green-600 dark:text-green-400">
+          Avatar updated successfully.
+        </p>
+      )}
     </div>
   );
 }
